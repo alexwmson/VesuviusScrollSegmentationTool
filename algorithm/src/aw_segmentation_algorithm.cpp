@@ -20,26 +20,34 @@
 #include <unordered_map>
 #include <climits>
 
-// From vc_grow_seg_from_seed.cpp
-// I did not write this, it's handy though
-std::string time_str()
-{
-    using namespace std::chrono;
-    auto now = system_clock::now();
-    auto ms = duration_cast<milliseconds>(now.time_since_epoch()) % 1000;
-    auto timer = system_clock::to_time_t(now);
-    std::tm bt = *std::localtime(&timer);
-    
-    std::ostringstream oss;
-    oss << std::put_time(&bt, "%Y%m%d%H%M%S");
-    oss << std::setfill('0') << std::setw(3) << ms.count();
-
-    return oss.str();
-}
 
 //#define INDEX(x, y) (x) + (y) * width
 
 namespace {
+    // From vc_grow_seg_from_seed.cpp
+    // I did not write this, it's handy though
+    std::string time_str()
+    {
+        using namespace std::chrono;
+        auto now = system_clock::now();
+        auto ms = duration_cast<milliseconds>(now.time_since_epoch()) % 1000;
+        auto timer = system_clock::to_time_t(now);
+        std::tm bt = *std::localtime(&timer);
+        
+        std::ostringstream oss;
+        oss << std::put_time(&bt, "%Y%m%d%H%M%S");
+        oss << std::setfill('0') << std::setw(3) << ms.count();
+
+        return oss.str();
+    }
+
+    
+    uint8_t get_val(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp, uint16_t x, uint16_t y, uint16_t z) {
+        double v = 0;
+        interp.Evaluate(static_cast<double>(z), static_cast<double>(y), static_cast<double>(x), &v);
+        return static_cast<uint8_t>(v);
+    }
+
     const std::array<cv::Vec3f, 6> directions6 = {{
     cv::Vec3f(-1.0f,  0.0f,  0.0f), // left
     cv::Vec3f( 1.0f,  0.0f,  0.0f), // right
@@ -81,18 +89,12 @@ namespace {
     { 0, -1, -1}, {0, -1, 1}, {0, 1, -1}, {0, 1, 1}
     }};
     
-    uint8_t GlobalThreshold = 40; //Threshold used to determine if voxel is scroll or air
+    uint8_t GlobalThreshold; //Threshold used to determine if voxel is scroll or air
     uint16_t volumeSizeX;
     uint16_t volumeSizeY;
     uint16_t volumeSizeZ;
 
-    uint8_t get_val(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp, uint16_t x, uint16_t y, uint16_t z) {
-        double v = 0;
-        interp.Evaluate(static_cast<double>(z), static_cast<double>(y), static_cast<double>(x), &v);
-        return static_cast<uint8_t>(v);
-    }
-
-    float allowedDifference = 0; //90 degrees
+    float allowedDifference; //90 degrees
 }
 
 struct point{
@@ -119,7 +121,6 @@ struct point{
     bool isSurface(CachedChunked3dInterpolator<uint8_t, passTroughComputor>& interp);
     bool isBridgePoint(CachedChunked3dInterpolator<uint8_t, passTroughComputor>& interp);
 };
-
 
 point findStart(CachedChunked3dInterpolator<uint8_t, passTroughComputor>& interp, uint16_t startX, uint16_t startY, uint16_t startZ);
 void grow(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp, std::unordered_map<uint64_t, std::shared_ptr<point>> &points, point startingPoint, uint8_t rNormalTimerMax, uint8_t patienceMax, int maxLayers);
@@ -188,8 +189,6 @@ int main(int argc, char *argv[]){
         return EXIT_FAILURE;
     }
 
-    vol_path = vm["volume"].as<std::string>();
-    tgt_dir = vm["target-dir"].as<std::string>();
     if (vm.count("params")) {
         std::ifstream params_f(vm["params"].as<std::string>());
         if (!params_f.is_open()) {
@@ -205,7 +204,28 @@ int main(int argc, char *argv[]){
     } else {
         params = nlohmann::json::object();
     }
-    
+
+    vol_path = vm["volume"].as<std::string>();
+    tgt_dir = vm["target-dir"].as<std::string>();
+
+    // Params stuff
+    GlobalThreshold = params.value("global_threshold", 40);  //Threshold used to determine if voxel is scroll or air
+    allowedDifference = params.value("allowed_difference", 0); // 0 -> 90 degrees, uses cross product
+    uint8_t patienceMax = params.value("max_patience", 5); // The max the patience counter can reach. I.e the most comfortable the bfs can be
+    int maxLayers = params.value("max_layers", 200); // Maximum number of bfs loops. If the code produced a perfect sphere, maxLayers is the radius
+    int minSize = params.value("min_size", 100); // Only used during random seed, used to determine min island size
+    int rsMaxLayers = params.value("random_seed_attempts_max_layers", 50); // Only used during random seed, max layers when guessing seeds
+
+    std::cout << "GlobalThreshold: " << static_cast<int>(GlobalThreshold )<< std::endl;
+    std::cout << "allowedDifference: " << allowedDifference << std::endl;
+    std::cout << "patienceMax: " << static_cast<int>(patienceMax) << std::endl;
+    std::cout << "maxLayers: " << maxLayers << std::endl;
+    if (params.contains("min_size"))
+        std::cout << "minSize: " << minSize << std::endl;
+    if (params.contains("random_seed_attempts_max_layers"))
+        std::cout << "rsMaxLayers: " << rsMaxLayers << std::endl;
+
+    // Just chunk management stuff, important part is interpolator is the object which gets values
     z5::filesystem::handle::Group group(vol_path, z5::FileMode::FileMode::r);
 
     nlohmann::json zarray = nlohmann::json::parse(std::ifstream(vol_path/"0/.zarray"));
@@ -236,10 +256,6 @@ int main(int argc, char *argv[]){
 
     std::cout << "Volume size, Z: " << volumeSizeZ << ", Y: " << volumeSizeY << ", X: " << volumeSizeX << std::endl;
 
-    int rows = 100, cols = 100; //Hardcoded for now, fix in future
-    std::vector<std::vector<point>> map(rows, std::vector<point>(cols));
-    //point back[row][col];
-
     point startingPoint{};
     if (vm.count("seed")){
         auto seedVec = vm["seed"].as<std::vector<float>>();
@@ -264,10 +280,10 @@ int main(int argc, char *argv[]){
             startingPoint = findStart(interpolator, x, y, z);
 
             // Found that a lot of times the code finds little 1x1x1 islands or something similar
-            // Nobody wants these, so the code tries to grow out at most 10 bfs layers to make sure it's not on one of these crappy islands
+            // Nobody wants these, so the code tries to grow out at most rsMaxLayers (defaults to 50) bfs layers to make sure it's not on one of these crappy islands
             std::unordered_map<uint64_t, std::shared_ptr<point>> tempPoints;
-            grow(interpolator, tempPoints, startingPoint, 5, (uint8_t)5, 10); //rNUT set to 5 since it's not calculated yet
-            if (tempPoints.size() > 100)
+            grow(interpolator, tempPoints, startingPoint, 5, patienceMax, rsMaxLayers); //rNUT set to 5 since it's not calculated yet
+            if (tempPoints.size() >= minSize)
                 break;
             
             startingPoint.value = 0;
@@ -296,7 +312,7 @@ int main(int argc, char *argv[]){
     std::cout << "referenceNormalUpdateTimer: " << static_cast<int>(referenceNormalUpdateTimer) << std::endl;
     std::cout << "Starting Grow function" << std::endl;
 
-    grow(interpolator, points, startingPoint, referenceNormalUpdateTimer, (uint8_t)5, 200);
+    grow(interpolator, points, startingPoint, referenceNormalUpdateTimer, patienceMax, maxLayers);
 
     std::cout << "Grow function finished" << std::endl;
     std::cout << "Total number of points: " << points.size() << std::endl;
