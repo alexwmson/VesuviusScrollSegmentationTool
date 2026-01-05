@@ -1,0 +1,12 @@
+# Python venvs, IDE files, build artifacts
+**/.venv*/
+**/.idea/*
+*.pyc
+*.tif
+node_modules/.yarn-integrity
+
+# Just C++ stuff
+build/
+*.o
+*.a
+*.so
