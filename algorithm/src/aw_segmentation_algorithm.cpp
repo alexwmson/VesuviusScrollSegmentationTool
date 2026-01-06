@@ -4,6 +4,8 @@
 #include "vc/core/util/Slicing.hpp"
 #include "vc/core/util/StreamOperators.hpp"
 #include "vc/core/util/Surface.hpp"
+#include "vc/core/util/QuadSurface.hpp"
+#include "vc/core/util/SurfaceArea.hpp"
 
 #include "z5/factory.hxx"
 #include <nlohmann/json.hpp>
@@ -93,6 +95,7 @@ namespace {
     uint16_t volumeSizeX;
     uint16_t volumeSizeY;
     uint16_t volumeSizeZ;
+    int stepSize;
 
     float allowedDifference; //90 degrees
 }
@@ -116,6 +119,9 @@ struct point{
 
     int i = 0, j = 0;
 
+    bool ignore = false;
+    uint8_t color = 255;
+
     void computeNeighbors(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp);
     void computeNormal(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp);
     bool isSurface(CachedChunked3dInterpolator<uint8_t, passTroughComputor>& interp);
@@ -129,6 +135,8 @@ bool isWithinVolume(uint16_t x, uint16_t y, uint16_t z);
 inline bool safeAdd(uint16_t base, int delta, uint16_t &result);
 inline uint64_t combineCoords(uint16_t x, uint16_t y, uint16_t z);
 inline void updateTangents(cv::Vec3f &oldNormal, cv::Vec3f &newNormal, cv::Vec3f &t1, cv::Vec3f &t2);
+
+cv::Mat_<cv::Vec3f> downsampleGrid(const cv::Mat_<cv::Vec3f>& grid,int factor);
 
 void point::computeNeighbors(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp) {
     neighbors = 0;
@@ -215,6 +223,9 @@ int main(int argc, char *argv[]){
     int maxLayers = params.value("max_layers", 200); // Maximum number of bfs loops. If the code produced a perfect sphere, maxLayers is the radius
     int minSize = params.value("min_size", 100); // Only used during random seed, used to determine min island size
     int rsMaxLayers = params.value("random_seed_attempts_max_layers", 50); // Only used during random seed, max layers when guessing seeds
+    float voxelSize = params.value("scale", 7.81); // The scrolls scale, defaults to 7.81 microns
+    int stepSize = params.value("steps", 10); // Number of voxels to go over by
+    cv::Vec2f scale(voxelSize * stepSize, voxelSize * stepSize);
 
     std::cout << "GlobalThreshold: " << static_cast<int>(GlobalThreshold )<< std::endl;
     std::cout << "allowedDifference: " << allowedDifference << std::endl;
@@ -334,31 +345,56 @@ int main(int argc, char *argv[]){
     int height = max_j - min_j + 1;
 
     cv::Mat_<cv::Vec3f> grid(height, width, cv::Vec3f(-1,-1,-1));
+    std::unordered_map<int64_t, uint8_t> colors;
 
     for (auto& [k, p] : points) {
+        if (p->ignore)
+            continue;
         int u = p->i - min_i;
         int v = p->j - min_j;
         grid(v, u) = cv::Vec3f(p->x, p->y, p->z);
+        colors[((static_cast<int64_t>(u) << 32) | static_cast<int>(v))] = p->color;
     }
 
+    // Save as tifxyz
+    auto downsampled = downsampleGrid(grid, stepSize);
+    auto* downsampledCopy = new cv::Mat_<cv::Vec3f>(downsampled.clone());
+    QuadSurface surf(downsampledCopy, scale);
+    std::string uuid = "segment_" + time_str();
+    std::filesystem::path segment_dir = tgt_dir / uuid;
 
+    double area_vx2 = vc::surface::computeSurfaceAreaVox2(grid);
+    double area_cm2 = area_vx2 * voxelSize * voxelSize / 1e8;
 
-    // temporary output curtosy of claude
-    
+    nlohmann::json segment_meta;
+    segment_meta["source"] = "aw_segmentation_algorithm";
+    segment_meta["area_cm2"] = area_cm2;
+    segment_meta["area_vx2"] = area_vx2;
+    segment_meta["params_used"] = params;
+
+    surf.meta = std::make_unique<nlohmann::json>(std::move(segment_meta));
+
+    try {
+        surf.save(segment_dir, uuid);
+        std::cout << "Saved tifxyz to " << tgt_dir  << "/" << uuid << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << "Error saving tifxyz: " << e.what() << std::endl;
+    }
+
     // Save the grid as an image to visualize
     std::cout << "Grid dimensions: " << width << " x " << height << std::endl;
-
-    // Create a visualization image (gray = empty, color = has point)
     cv::Mat visualization(height, width, CV_8UC3, cv::Scalar(50, 50, 50));
 
-    for (auto& [k, p] : points) {
-        int u = p->i - min_i;
-        int v = p->j - min_j;
-        
-        visualization.at<cv::Vec3b>(v, u) = cv::Vec3b(128, 128, 128); // Gray
+    for (int i = 0; i < height; i++) {
+        for (int j = 0; j < width; j++){
+        if (grid.at<cv::Vec3f>(i, j) == cv::Vec3f(-1,-1,-1))
+            continue;
+        uint8_t color = colors[((static_cast<int64_t>(i) << 32) | static_cast<int>(j))];
+        visualization.at<cv::Vec3b>(i, j) = cv::Vec3b(color, color, color);
+        }
     }
 
-    std::filesystem::path filename = tgt_dir / ("grayscale_" + time_str() + ".png");
+    std::filesystem::path filename = segment_dir / ("grayscale.png");
     cv::imwrite(filename.string(), visualization);
     std::cout << "Saved grid visualization to " << filename.string() << std::endl;
 
@@ -429,6 +465,7 @@ bool isWithinVolume(uint16_t x, uint16_t y, uint16_t z){
 }
 
 void grow(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp, std::unordered_map<uint64_t, std::shared_ptr<point>> &points, point startingPoint, uint8_t rNormalTimerMax, uint8_t patienceMax, int maxLayers){
+    std::unordered_set<int64_t> ij_points;
     cv::Vec3f globalOrigin(startingPoint.x, startingPoint.y, startingPoint.z);
     std::queue<std::tuple<std::shared_ptr<point>, cv::Vec3f, cv::Vec3f, cv::Vec3f, uint8_t, uint8_t>> q;
     std::unordered_set<uint64_t> seen;
@@ -473,6 +510,8 @@ void grow(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp, std:
             else
                 if (patience < patienceMax)
                     patience++;
+            
+            p.color = static_cast<uint8_t>(std::round((std::clamp(normalDifference, -1.0f, 1.0f) + 1.0f) / 2.0f * 255.0f));
 
             if (patience != 0){
                 if (patience == patienceMax && updateNormalTimer == 0){ //Only update referenceNormal if it's time to and we're not in a weird part of the scroll (A rough part for example)
@@ -536,6 +575,10 @@ void grow(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp, std:
                         newP.i = static_cast<int>(std::round(t1.dot(delta)));
                         newP.j = static_cast<int>(std::round(t2.dot(delta)));
 
+                        if (!ij_points.insert((static_cast<int64_t>(newP.i) << 32) | (static_cast<uint32_t>(newP.j))).second) {
+                            newP.ignore = true;
+                        }
+
                         seen.insert(combineCoords(newX, newY, newZ));
                         q.push(std::make_tuple(std::make_shared<point>(newP), referenceNormal, t1, t2, patience, std::max(0, updateNormalTimer - 1)));
                     }
@@ -574,4 +617,31 @@ inline void updateTangents(cv::Vec3f &oldNormal, cv::Vec3f &newNormal, cv::Vec3f
     return;
 }
 
+cv::Mat_<cv::Vec3f> downsampleGrid(const cv::Mat_<cv::Vec3f>& grid,int factor){
+    int newH = grid.rows / factor;
+    int newW = grid.cols / factor;
 
+    cv::Mat_<cv::Vec3f> out(newH, newW, cv::Vec3f(-1,-1,-1));
+
+    for (int y = 0; y < newH; y++) {
+        for (int x = 0; x < newW; x++) {
+
+            cv::Vec3f sum(0,0,0);
+            int count = 0;
+
+            for (int dy = 0; dy < factor; dy++) {
+                for (int dx = 0; dx < factor; dx++) {
+                    cv::Vec3f v = grid(y*factor + dy, x*factor + dx);
+                    if (v != cv::Vec3f(-1,-1,-1)) {
+                        sum += v;
+                        count++;
+                    }
+                }
+            }
+
+            if (count > 0)
+                out(y, x) = sum * (1.0f / count);
+        }
+    }
+    return out;
+}
