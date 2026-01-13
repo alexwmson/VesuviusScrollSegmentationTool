@@ -267,7 +267,6 @@ int main(int argc, char *argv[]){
     }
 
     std::cout << "Volume size, Z: " << volumeSizeZ << ", Y: " << volumeSizeY << ", X: " << volumeSizeX << std::endl;
-    std::mt19937 rng;
     point startingPoint{};
     if (vm.count("seed")){
         auto seedVec = vm["seed"].as<std::vector<float>>();
@@ -281,13 +280,16 @@ int main(int argc, char *argv[]){
         grow(interpolator, tempPoints, startingPoint, 5, patienceMax, maxLayers, static_cast<uint64_t>(minSize));  //rNUT set to 5 since it's not calculated yet
 
         if (startingPoint.value == 0 || tempPoints.size() < minSize){
-            rng.seed(static_cast<uint32_t>(x * 31 ^ y * 37 ^ z * 41));
-            std::uniform_int_distribution<int> dir(0, 17);
-            int maxRadius = 200, growth = 10;
-
+            int maxRadius = 100, growth = 10;
             const int sx = x, sy = y, sz = z;
+            std::atomic<int> bestTry(1000);
+            std::mutex sp_mutex;
 
-            for (int tries = 0; tries < 5000; tries++) {
+            #pragma omp parallel for
+            for (int tries = 0; tries < 1000; tries++) {
+                if (bestTry.load() < tries) continue; // already found lowest try
+                std::mt19937 rng(static_cast<uint32_t>(x * 31 ^ y * 37 ^ z * 41 ^ tries));
+
                 int radius = std::min(maxRadius, 1 + tries / growth);
                 int dx, dy, dz;
                 do {
@@ -306,62 +308,66 @@ int main(int argc, char *argv[]){
 
                 std::cout << "Starting position, x: " << nx << ", y: " << ny << ", z: " << nz << std::endl;
 
-                startingPoint = findStart(interpolator, static_cast<uint16_t>(nx), static_cast<uint16_t>(ny), static_cast<uint16_t>(nz));
+                point candidate = findStart(interpolator, nx, ny, nz);
+                if (candidate.value == 0) continue;
 
-                if (startingPoint.value == 0)
-                    continue;
-
+                // Found that a lot of times the code finds little 1x1x1 islands or something similar
+                // Nobody wants these, so the code tries to grow out at most maxLayers (defaults to 50) bfs layers to make sure it's not on one of these crappy islands
                 std::unordered_map<uint64_t, std::shared_ptr<point>> tempPoints;
-                grow(interpolator, tempPoints, startingPoint, 5, patienceMax, maxLayers, static_cast<uint64_t>(minSize));
+                grow(interpolator, tempPoints, candidate, 5, patienceMax, maxLayers, minSize);  //rNUT set to 5 since it's not calculated yet
 
-                if (tempPoints.size() >= minSize)
-                    break;
-                
-                startingPoint.value = 0;
+                if (tempPoints.size() >= minSize) {
+                    int curBest = bestTry.load();
+                    while (tries < curBest) {
+                        if (bestTry.compare_exchange_weak(curBest, tries)) {
+                            std::lock_guard<std::mutex> lock(sp_mutex);
+                            startingPoint = candidate;
+                            break;
+                        }
+                    }
+                }
             }
         }
-
-        if (startingPoint.value == 0) {
-            std::cerr << "WARNING: Aw man, could not find a surface point after 1000 tries.\n";
-            return EXIT_FAILURE;
-        }
-        /*
-        auto seedVec = vm["seed"].as<std::vector<float>>();
-        startingPoint = findStart(interpolator, static_cast<uint16_t>(seedVec[0]), static_cast<uint16_t>(seedVec[1]), static_cast<uint16_t>(seedVec[2]));
-        if (startingPoint.value == 0){
-            std::cerr << "ERROR: could not find a surface point around starting seed" << std::endl;
-            return EXIT_FAILURE;
-        }
-        */
     }
     else{
-        rng.seed(std::random_device{}());
-        std::uniform_int_distribution<uint16_t> posX(0, volumeSizeX - 1);
-        std::uniform_int_distribution<uint16_t> posY(0, volumeSizeY - 1);
-        std::uniform_int_distribution<uint16_t> posZ(0, volumeSizeZ - 1);
-        int tries = 0;
+        int maxTries = 1000;
+        std::atomic<int> bestTry(maxTries);
+        std::mutex sp_mutex; // protects startingPoint
 
-        while (startingPoint.value == 0 && tries < 1000){
-            tries++;
+        #pragma omp parallel for
+        for (int tries = 0; tries < maxTries; tries++){
+            if (bestTry.load() < tries) continue;
 
+            std::mt19937 rng(std::random_device{}() + omp_get_thread_num());
+            std::uniform_int_distribution<uint16_t> posX(0, volumeSizeX - 1);
+            std::uniform_int_distribution<uint16_t> posY(0, volumeSizeY - 1);
+            std::uniform_int_distribution<uint16_t> posZ(0, volumeSizeZ - 1);
             uint16_t x = posX(rng), y = posY(rng), z = posZ(rng);
+
             std::cout << "Starting position, x: " << x << ", y: " << y << ", z: " << z << std::endl;
-            startingPoint = findStart(interpolator, x, y, z);
+            point candidate = findStart(interpolator, x, y, z);
+            if (candidate.value == 0) continue;
 
             // Found that a lot of times the code finds little 1x1x1 islands or something similar
             // Nobody wants these, so the code tries to grow out at most maxLayers (defaults to 50) bfs layers to make sure it's not on one of these crappy islands
             std::unordered_map<uint64_t, std::shared_ptr<point>> tempPoints;
-            grow(interpolator, tempPoints, startingPoint, 5, patienceMax, maxLayers, static_cast<uint64_t>(minSize)); //rNUT set to 5 since it's not calculated yet
-            if (tempPoints.size() >= minSize)
-                break;
+            grow(interpolator, tempPoints, candidate, 5, patienceMax, maxLayers, static_cast<uint64_t>(minSize)); //rNUT set to 5 since it's not calculated yet
             
-            startingPoint.value = 0;
+            if (tempPoints.size() >= minSize) {
+                int curBest = bestTry.load();
+                while (tries < curBest) {
+                    if (bestTry.compare_exchange_weak(curBest, tries)) {
+                        std::lock_guard<std::mutex> lock(sp_mutex);
+                        startingPoint = candidate;
+                        break;
+                    }
+                }
+            }
         }
-
-        if (startingPoint.value == 0) {
-            std::cerr << "WARNING: Aw man, could not find a surface point after " << tries << " tries.\n";
-            return EXIT_FAILURE;
-        }
+    }
+    if (startingPoint.value == 0) {
+        std::cerr << "WARNING: Aw man, could not find a surface point.\n";
+        return EXIT_FAILURE;
     }
 
     std::cout << "Starting point found!" << std::endl;
