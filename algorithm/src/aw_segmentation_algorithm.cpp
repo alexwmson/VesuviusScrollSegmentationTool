@@ -224,10 +224,9 @@ int main(int argc, char *argv[]){
     int maxLayers = params.value("max_layers", 200); // Maximum number of bfs loops. If the code produced a perfect sphere, maxLayers is the radius
     uint64_t maxSize = params.value("max_size", (uint64_t)1000000000); // Maximum points allowed, defaults to 1 billion
     int minSize = params.value("min_size", 100); // Only used during random seed, used to determine min island size
-    int rsMaxLayers = params.value("random_seed_attempts_max_layers", 50); // Only used during random seed, max layers when guessing seeds
     float voxelSize = params.value("scale", 7.81); // The scrolls scale, defaults to 7.81 microns
     int stepSize = params.value("steps", 10); // Number of voxels to go over by
-    std::string uuid = params.value("uuid", "segment_", + time_str()); // uuid for folder name
+    std::string uuid = params.value("uuid", "segment_" + time_str()); // uuid for folder name
     cv::Vec2f scale(voxelSize, voxelSize);
 
     std::cout << "GlobalThreshold: " << static_cast<int>(GlobalThreshold )<< std::endl;
@@ -237,8 +236,6 @@ int main(int argc, char *argv[]){
     std::cout << "maxSize: " << maxSize << std::endl;
     if (params.contains("min_size"))
         std::cout << "minSize: " << minSize << std::endl;
-    if (params.contains("random_seed_attempts_max_layers"))
-        std::cout << "rsMaxLayers: " << rsMaxLayers << std::endl;
 
     // Just chunk management stuff, important part is interpolator is the object which gets values
     z5::filesystem::handle::Group group(vol_path, z5::FileMode::FileMode::r);
@@ -270,35 +267,62 @@ int main(int argc, char *argv[]){
     }
 
     std::cout << "Volume size, Z: " << volumeSizeZ << ", Y: " << volumeSizeY << ", X: " << volumeSizeX << std::endl;
-
+    std::mt19937 rng;
     point startingPoint{};
     if (vm.count("seed")){
         auto seedVec = vm["seed"].as<std::vector<float>>();
-        static std::mt19937 rng(std::random_device{}());
-        std::uniform_int_distribution<uint16_t> posX(std::max(0, static_cast<int>(seedVec[0] - 200)), std::min(volumeSizeX, static_cast<uint16_t>(seedVec[0] + 200)));
-        std::uniform_int_distribution<uint16_t> posY(std::max(0, static_cast<int>(seedVec[1] - 200)), std::min(volumeSizeY, static_cast<uint16_t>(seedVec[1] + 200)));
-        std::uniform_int_distribution<uint16_t> posZ(std::max(0, static_cast<int>(seedVec[2] - 200)), std::min(volumeSizeZ, static_cast<uint16_t>(seedVec[2] + 200)));
-        int tries = 0;
+        uint16_t x = seedVec[0], y = seedVec[1], z = seedVec[2];
+        std::cout << "Starting position, x: " << x << ", y: " << y << ", z: " << z << std::endl;
+        startingPoint = findStart(interpolator, x, y, z);
+        
+        // Found that a lot of times the code finds little 1x1x1 islands or something similar
+        // Nobody wants these, so the code tries to grow out at most maxLayers (defaults to 50) bfs layers to make sure it's not on one of these crappy islands
+        std::unordered_map<uint64_t, std::shared_ptr<point>> tempPoints;
+        grow(interpolator, tempPoints, startingPoint, 5, patienceMax, maxLayers, static_cast<uint64_t>(minSize));  //rNUT set to 5 since it's not calculated yet
 
-        while (startingPoint.value == 0 && tries < 1000){
-            tries++;
+        if (startingPoint.value == 0 || tempPoints.size() < minSize){
+            rng.seed(static_cast<uint32_t>(x * 31 ^ y * 37 ^ z * 41));
+            std::uniform_int_distribution<int> dir(0, 17);
+            int maxRadius = 200, growth = 10;
 
-            uint16_t x = posX(rng), y = posY(rng), z = posZ(rng);
-            std::cout << "Starting position, x: " << x << ", y: " << y << ", z: " << z << std::endl;
-            startingPoint = findStart(interpolator, x, y, z);
+            const int sx = x, sy = y, sz = z;
 
-            // Found that a lot of times the code finds little 1x1x1 islands or something similar
-            // Nobody wants these, so the code tries to grow out at most rsMaxLayers (defaults to 50) bfs layers to make sure it's not on one of these crappy islands
-            std::unordered_map<uint64_t, std::shared_ptr<point>> tempPoints;
-            grow(interpolator, tempPoints, startingPoint, 5, patienceMax, rsMaxLayers, static_cast<uint64_t>(minSize)); //rNUT set to 5 since it's not calculated yet
-            if (tempPoints.size() >= minSize)
-                break;
-            
-            startingPoint.value = 0;
+            for (int tries = 0; tries < 5000; tries++) {
+                int radius = std::min(maxRadius, 1 + tries / growth);
+                int dx, dy, dz;
+                do {
+                    std::uniform_int_distribution<int> dist(-radius, radius);
+                    dx = dist(rng);
+                    dy = dist(rng);
+                    dz = dist(rng);
+                } while (dx*dx + dy*dy + dz*dz > radius*radius);
+
+                int nx = sx + dx;
+                int ny = sy + dy;
+                int nz = sz + dz;
+
+                if (nx < 0 || ny < 0 || nz < 0 || nx >= volumeSizeX || ny >= volumeSizeY || nz >= volumeSizeZ)
+                    continue;
+
+                std::cout << "Starting position, x: " << nx << ", y: " << ny << ", z: " << nz << std::endl;
+
+                startingPoint = findStart(interpolator, static_cast<uint16_t>(nx), static_cast<uint16_t>(ny), static_cast<uint16_t>(nz));
+
+                if (startingPoint.value == 0)
+                    continue;
+
+                std::unordered_map<uint64_t, std::shared_ptr<point>> tempPoints;
+                grow(interpolator, tempPoints, startingPoint, 5, patienceMax, maxLayers, static_cast<uint64_t>(minSize));
+
+                if (tempPoints.size() >= minSize)
+                    break;
+                
+                startingPoint.value = 0;
+            }
         }
 
         if (startingPoint.value == 0) {
-            std::cerr << "WARNING: Aw man, could not find a surface point after " << tries << " tries.\n";
+            std::cerr << "WARNING: Aw man, could not find a surface point after 1000 tries.\n";
             return EXIT_FAILURE;
         }
         /*
@@ -311,7 +335,7 @@ int main(int argc, char *argv[]){
         */
     }
     else{
-        static std::mt19937 rng(std::random_device{}());
+        rng.seed(std::random_device{}());
         std::uniform_int_distribution<uint16_t> posX(0, volumeSizeX - 1);
         std::uniform_int_distribution<uint16_t> posY(0, volumeSizeY - 1);
         std::uniform_int_distribution<uint16_t> posZ(0, volumeSizeZ - 1);
@@ -325,9 +349,9 @@ int main(int argc, char *argv[]){
             startingPoint = findStart(interpolator, x, y, z);
 
             // Found that a lot of times the code finds little 1x1x1 islands or something similar
-            // Nobody wants these, so the code tries to grow out at most rsMaxLayers (defaults to 50) bfs layers to make sure it's not on one of these crappy islands
+            // Nobody wants these, so the code tries to grow out at most maxLayers (defaults to 50) bfs layers to make sure it's not on one of these crappy islands
             std::unordered_map<uint64_t, std::shared_ptr<point>> tempPoints;
-            grow(interpolator, tempPoints, startingPoint, 5, patienceMax, rsMaxLayers, static_cast<uint64_t>(minSize)); //rNUT set to 5 since it's not calculated yet
+            grow(interpolator, tempPoints, startingPoint, 5, patienceMax, maxLayers, static_cast<uint64_t>(minSize)); //rNUT set to 5 since it's not calculated yet
             if (tempPoints.size() >= minSize)
                 break;
             
@@ -503,6 +527,9 @@ inline uint64_t combineCoords(uint16_t x, uint16_t y, uint16_t z) {
 }
 
 point findStart(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp, uint16_t startX, uint16_t startY, uint16_t startZ){
+    if (!isWithinVolume(startX, startY, startZ))
+        return point{};
+
     std::queue<point> q;
     bool seen[100][100][100] = {false};
     uint16_t newX, newY, newZ;
