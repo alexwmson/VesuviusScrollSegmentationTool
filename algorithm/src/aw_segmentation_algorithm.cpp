@@ -129,7 +129,7 @@ struct point{
 };
 
 point findStart(CachedChunked3dInterpolator<uint8_t, passTroughComputor>& interp, uint16_t startX, uint16_t startY, uint16_t startZ);
-void grow(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp, std::unordered_map<uint64_t, std::shared_ptr<point>> &points, point startingPoint, uint8_t rNormalTimerMax, uint8_t patienceMax, int maxLayers);
+void grow(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp, std::unordered_map<uint64_t, std::shared_ptr<point>> &points, point startingPoint, uint8_t rNormalTimerMax, uint8_t patienceMax, int maxLayers, uint64_t maxSize);
 bool isWithinVolume(uint16_t x, uint16_t y, uint16_t z);
 
 inline bool safeAdd(uint16_t base, int delta, uint16_t &result);
@@ -137,6 +137,7 @@ inline uint64_t combineCoords(uint16_t x, uint16_t y, uint16_t z);
 inline void updateTangents(cv::Vec3f &oldNormal, cv::Vec3f &newNormal, cv::Vec3f &t1, cv::Vec3f &t2);
 
 cv::Mat_<cv::Vec3f> downsampleGrid(const cv::Mat_<cv::Vec3f>& grid,int factor);
+inline void fillHoles(cv::Mat_<cv::Vec3f>& grid, int invalidCellCount);
 
 void point::computeNeighbors(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp) {
     neighbors = 0;
@@ -221,16 +222,19 @@ int main(int argc, char *argv[]){
     allowedDifference = params.value("allowed_difference", 0); // 0 -> 90 degrees, uses cross product
     uint8_t patienceMax = params.value("max_patience", 5); // The max the patience counter can reach. I.e the most comfortable the bfs can be
     int maxLayers = params.value("max_layers", 200); // Maximum number of bfs loops. If the code produced a perfect sphere, maxLayers is the radius
+    uint64_t maxSize = params.value("max_size", (uint64_t)1000000000); // Maximum points allowed, defaults to 1 billion
     int minSize = params.value("min_size", 100); // Only used during random seed, used to determine min island size
     int rsMaxLayers = params.value("random_seed_attempts_max_layers", 50); // Only used during random seed, max layers when guessing seeds
     float voxelSize = params.value("scale", 7.81); // The scrolls scale, defaults to 7.81 microns
     int stepSize = params.value("steps", 10); // Number of voxels to go over by
-    cv::Vec2f scale(voxelSize * stepSize, voxelSize * stepSize);
+    std::string uuid = params.value("uuid", "segment_", + time_str()); // uuid for folder name
+    cv::Vec2f scale(voxelSize, voxelSize);
 
     std::cout << "GlobalThreshold: " << static_cast<int>(GlobalThreshold )<< std::endl;
     std::cout << "allowedDifference: " << allowedDifference << std::endl;
     std::cout << "patienceMax: " << static_cast<int>(patienceMax) << std::endl;
     std::cout << "maxLayers: " << maxLayers << std::endl;
+    std::cout << "maxSize: " << maxSize << std::endl;
     if (params.contains("min_size"))
         std::cout << "minSize: " << minSize << std::endl;
     if (params.contains("random_seed_attempts_max_layers"))
@@ -270,11 +274,41 @@ int main(int argc, char *argv[]){
     point startingPoint{};
     if (vm.count("seed")){
         auto seedVec = vm["seed"].as<std::vector<float>>();
+        static std::mt19937 rng(std::random_device{}());
+        std::uniform_int_distribution<uint16_t> posX(std::max(0, static_cast<int>(seedVec[0] - 200)), std::min(volumeSizeX, static_cast<uint16_t>(seedVec[0] + 200)));
+        std::uniform_int_distribution<uint16_t> posY(std::max(0, static_cast<int>(seedVec[1] - 200)), std::min(volumeSizeY, static_cast<uint16_t>(seedVec[1] + 200)));
+        std::uniform_int_distribution<uint16_t> posZ(std::max(0, static_cast<int>(seedVec[2] - 200)), std::min(volumeSizeZ, static_cast<uint16_t>(seedVec[2] + 200)));
+        int tries = 0;
+
+        while (startingPoint.value == 0 && tries < 1000){
+            tries++;
+
+            uint16_t x = posX(rng), y = posY(rng), z = posZ(rng);
+            std::cout << "Starting position, x: " << x << ", y: " << y << ", z: " << z << std::endl;
+            startingPoint = findStart(interpolator, x, y, z);
+
+            // Found that a lot of times the code finds little 1x1x1 islands or something similar
+            // Nobody wants these, so the code tries to grow out at most rsMaxLayers (defaults to 50) bfs layers to make sure it's not on one of these crappy islands
+            std::unordered_map<uint64_t, std::shared_ptr<point>> tempPoints;
+            grow(interpolator, tempPoints, startingPoint, 5, patienceMax, rsMaxLayers, static_cast<uint64_t>(minSize)); //rNUT set to 5 since it's not calculated yet
+            if (tempPoints.size() >= minSize)
+                break;
+            
+            startingPoint.value = 0;
+        }
+
+        if (startingPoint.value == 0) {
+            std::cerr << "WARNING: Aw man, could not find a surface point after " << tries << " tries.\n";
+            return EXIT_FAILURE;
+        }
+        /*
+        auto seedVec = vm["seed"].as<std::vector<float>>();
         startingPoint = findStart(interpolator, static_cast<uint16_t>(seedVec[0]), static_cast<uint16_t>(seedVec[1]), static_cast<uint16_t>(seedVec[2]));
         if (startingPoint.value == 0){
             std::cerr << "ERROR: could not find a surface point around starting seed" << std::endl;
             return EXIT_FAILURE;
         }
+        */
     }
     else{
         static std::mt19937 rng(std::random_device{}());
@@ -293,7 +327,7 @@ int main(int argc, char *argv[]){
             // Found that a lot of times the code finds little 1x1x1 islands or something similar
             // Nobody wants these, so the code tries to grow out at most rsMaxLayers (defaults to 50) bfs layers to make sure it's not on one of these crappy islands
             std::unordered_map<uint64_t, std::shared_ptr<point>> tempPoints;
-            grow(interpolator, tempPoints, startingPoint, 5, patienceMax, rsMaxLayers); //rNUT set to 5 since it's not calculated yet
+            grow(interpolator, tempPoints, startingPoint, 5, patienceMax, rsMaxLayers, static_cast<uint64_t>(minSize)); //rNUT set to 5 since it's not calculated yet
             if (tempPoints.size() >= minSize)
                 break;
             
@@ -323,7 +357,7 @@ int main(int argc, char *argv[]){
     std::cout << "referenceNormalUpdateTimer: " << static_cast<int>(referenceNormalUpdateTimer) << std::endl;
     std::cout << "Starting Grow function" << std::endl;
 
-    grow(interpolator, points, startingPoint, referenceNormalUpdateTimer, patienceMax, maxLayers);
+    grow(interpolator, points, startingPoint, referenceNormalUpdateTimer, patienceMax, maxLayers, maxSize);
 
     std::cout << "Grow function finished" << std::endl;
     std::cout << "Total number of points: " << points.size() << std::endl;
@@ -345,7 +379,7 @@ int main(int argc, char *argv[]){
     int height = max_j - min_j + 1;
 
     cv::Mat_<cv::Vec3f> grid(height, width, cv::Vec3f(-1,-1,-1));
-    std::unordered_map<int64_t, uint8_t> colors;
+    cv::Mat_<uint8_t> colorGrid(height, width, static_cast<uint8_t>(0));
 
     for (auto& [k, p] : points) {
         if (p->ignore)
@@ -353,18 +387,44 @@ int main(int argc, char *argv[]){
         int u = p->i - min_i;
         int v = p->j - min_j;
         grid(v, u) = cv::Vec3f(p->x, p->y, p->z);
-        colors[((static_cast<int64_t>(u) << 32) | static_cast<int>(v))] = p->color;
+        colorGrid(v, u) = p->color;
     }
 
     // Save as tifxyz
     auto downsampled = downsampleGrid(grid, stepSize);
-    auto* downsampledCopy = new cv::Mat_<cv::Vec3f>(downsampled.clone());
-    QuadSurface surf(downsampledCopy, scale);
-    std::string uuid = "segment_" + time_str();
+
+    int valid = 0;
+    for (int r = 0; r < downsampled.rows; ++r) {
+        for (int c = 0; c < downsampled.cols; ++c) {
+            if (downsampled(r,c) != cv::Vec3f(-1,-1,-1))
+                ++valid;
+        }
+    }
+
+    std::cout << "Valid cells: " << valid
+            << " / " << (downsampled.rows * downsampled.cols)
+            << std::endl;
+
+    //fillHoles(downsampled, downsampled.rows * downsampled.cols - valid);
+
+    valid = 0;
+    for (int r = 0; r < downsampled.rows; ++r) {
+        for (int c = 0; c < downsampled.cols; ++c) {
+            if (downsampled(r,c) != cv::Vec3f(-1,-1,-1))
+                ++valid;
+        }
+    }
+
+    std::cout << "Valid cells again: " << valid
+            << " / " << (downsampled.rows * downsampled.cols)
+            << std::endl;
+
+    QuadSurface surf(downsampled, scale / static_cast<float>(stepSize));
     std::filesystem::path segment_dir = tgt_dir / uuid;
 
-    double area_vx2 = vc::surface::computeSurfaceAreaVox2(grid);
+    double area_vx2 = vc::surface::computeSurfaceAreaVox2(downsampled);
     double area_cm2 = area_vx2 * voxelSize * voxelSize / 1e8;
+    std::cout << "Area (cm^2): " << area_cm2 << std::endl;
 
     nlohmann::json segment_meta;
     segment_meta["source"] = "aw_segmentation_algorithm";
@@ -389,7 +449,7 @@ int main(int argc, char *argv[]){
         for (int j = 0; j < width; j++){
         if (grid.at<cv::Vec3f>(i, j) == cv::Vec3f(-1,-1,-1))
             continue;
-        uint8_t color = colors[((static_cast<int64_t>(i) << 32) | static_cast<int>(j))];
+        uint8_t color = colorGrid(i, j);
         visualization.at<cv::Vec3b>(i, j) = cv::Vec3b(color, color, color);
         }
     }
@@ -397,6 +457,21 @@ int main(int argc, char *argv[]){
     std::filesystem::path filename = segment_dir / ("grayscale.png");
     cv::imwrite(filename.string(), visualization);
     std::cout << "Saved grid visualization to " << filename.string() << std::endl;
+
+    /*
+    for (int y = 0; y < downsampled.rows; y++) {
+        for (int x = 0; x < downsampled.cols; x++) {
+
+            const cv::Vec3f& v = downsampled(y, x);
+
+            // Print each cell as (x,y,z)
+            std::cout << "("
+                      << std::setw(6) << std::fixed << std::setprecision(2) << v[0] << ", "
+                      << std::setw(6) << v[1] << ", "
+                      << std::setw(6) << v[2] << ") ";
+        }
+        std::cout << "\n"; // new row
+    }*/
 
     // Print some statistics
     int filledCells = 0;
@@ -408,8 +483,8 @@ int main(int argc, char *argv[]){
         }
     }
 
-    std::cout << "Filled cells: " << filledCells << " / " << (width * height) 
-            << " (" << (100.0 * filledCells / (width * height)) << "%)" << std::endl;
+    std::cout << "Filled cells: " << filledCells << " / " << (width * height) << " (" << (100.0 * filledCells / (width * height)) << "%)" << std::endl;
+    std::cout << "Average overlap (I.e avg of x points being assigned to n cells in the grid): " << static_cast<float>(points.size()) / static_cast<float>(filledCells) << std::endl;
 
     return EXIT_SUCCESS;
 }
@@ -464,7 +539,7 @@ bool isWithinVolume(uint16_t x, uint16_t y, uint16_t z){
     return x < volumeSizeX && y < volumeSizeY && z < volumeSizeZ;
 }
 
-void grow(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp, std::unordered_map<uint64_t, std::shared_ptr<point>> &points, point startingPoint, uint8_t rNormalTimerMax, uint8_t patienceMax, int maxLayers){
+void grow(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp, std::unordered_map<uint64_t, std::shared_ptr<point>> &points, point startingPoint, uint8_t rNormalTimerMax, uint8_t patienceMax, int maxLayers, uint64_t maxSize){
     std::unordered_set<int64_t> ij_points;
     cv::Vec3f globalOrigin(startingPoint.x, startingPoint.y, startingPoint.z);
     std::queue<std::tuple<std::shared_ptr<point>, cv::Vec3f, cv::Vec3f, cv::Vec3f, uint8_t, uint8_t>> q;
@@ -513,7 +588,7 @@ void grow(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp, std:
             
             p.color = static_cast<uint8_t>(std::round((std::clamp(normalDifference, -1.0f, 1.0f) + 1.0f) / 2.0f * 255.0f));
 
-            if (patience != 0){
+            if (patience > 0){
                 if (patience == patienceMax && updateNormalTimer == 0){ //Only update referenceNormal if it's time to and we're not in a weird part of the scroll (A rough part for example)
                     updateTangents(referenceNormal, p.normalizedNormal, t1, t2);
                     referenceNormal = p.normalizedNormal;
@@ -521,6 +596,9 @@ void grow(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp, std:
                 }
 
                 points[combineCoords(p.x, p.y, p.z)] = pPointer;
+
+                if (points.size() >= maxSize) // Return early if we already hit maxSize
+                    return;
 
                 for (const auto &neighbor : directions18){
                     uint16_t newX = 0, newY = 0, newZ = 0;
@@ -617,31 +695,97 @@ inline void updateTangents(cv::Vec3f &oldNormal, cv::Vec3f &newNormal, cv::Vec3f
     return;
 }
 
-cv::Mat_<cv::Vec3f> downsampleGrid(const cv::Mat_<cv::Vec3f>& grid,int factor){
-    int newH = grid.rows / factor;
-    int newW = grid.cols / factor;
+inline cv::Mat_<cv::Vec3f> downsampleGrid(const cv::Mat_<cv::Vec3f>& grid,int stepSize){
+    int newH = grid.rows / stepSize;
+    int newW = grid.cols / stepSize;
+    int limit = stepSize * stepSize;
 
     cv::Mat_<cv::Vec3f> out(newH, newW, cv::Vec3f(-1,-1,-1));
+    std::mt19937 rng(std::random_device{}());
+    std::normal_distribution<double> dist(stepSize / 2, stepSize / 12); // mean = stepSize / 2, std = stepSize / 12
 
-    for (int y = 0; y < newH; y++) {
-        for (int x = 0; x < newW; x++) {
+    for (int i = 0; i + stepSize - 1 < grid.rows; i += stepSize){
+        for (int j = 0; j + stepSize - 1 < grid.cols; j += stepSize){
+            bool foundOne = false;
+            int counter = 0;
+                while (!foundOne && counter++ < limit){
+                int di = i + static_cast<int>(std::round(dist(rng)));
+                int dj = j + static_cast<int>(std::round(dist(rng)));
 
-            cv::Vec3f sum(0,0,0);
-            int count = 0;
+                while (di < i || di >= i + stepSize)
+                    di = i + static_cast<int>(std::round(dist(rng)));
+                while (dj < j || dj >= j + stepSize)
+                    dj = j + static_cast<int>(std::round(dist(rng)));
+                
+                cv::Vec3f val = grid(di, dj);
+                if (val != cv::Vec3f(-1,-1,-1)){
+                    foundOne = true;
+                    out[i / stepSize][j / stepSize] = val;
+                }
+            }
+        }
+    }
 
-            for (int dy = 0; dy < factor; dy++) {
-                for (int dx = 0; dx < factor; dx++) {
-                    cv::Vec3f v = grid(y*factor + dy, x*factor + dx);
-                    if (v != cv::Vec3f(-1,-1,-1)) {
-                        sum += v;
-                        count++;
+
+
+
+
+    return out;
+}
+
+
+// Done in 2 parts:
+// First, fill first 3 layers of invalid cells with average of neighboring valid cells
+// Second, fill rest of invalid cells with line of best fit
+inline void fillHoles(cv::Mat_<cv::Vec3f>& grid, int invalidCellCount){
+    // Averaging first 3 layers of invalid cells
+    for (int iterations = 1; iterations <= 3 || invalidCellCount > 0; iterations++){
+        cv::Mat_<cv::Vec3f> next = grid;
+        for (int i = 0; i < grid.rows; i++){
+            for (int j = 0; j < grid.cols; j++){
+                if (grid(i, j) == cv::Vec3f(-1, -1, -1)){
+                    int neighbors = 0;
+                    float x_num = 0, y_num = 0, z_num = 0;
+
+                    if (i - 1 >= 0){
+                        cv::Vec3f neighbor = grid(i - 1, j);
+                        if (neighbor != cv::Vec3f(-1, -1, -1)){
+                            x_num += neighbor[0]; y_num += neighbor[1]; z_num += neighbor[2];
+                            neighbors++;
+                        }
+                    }
+                    if (j - 1 >= 0){
+                        cv::Vec3f neighbor = grid(i, j - 1);
+                        if (neighbor != cv::Vec3f(-1, -1, -1)){
+                            x_num += neighbor[0]; y_num += neighbor[1]; z_num += neighbor[2];
+                            neighbors++;
+                        }
+                    }
+                    if (i + 1 < grid.rows){
+                        cv::Vec3f neighbor = grid(i + 1, j);
+                        if (neighbor != cv::Vec3f(-1, -1, -1)){
+                            x_num += neighbor[0]; y_num += neighbor[1]; z_num += neighbor[2];
+                            neighbors++;
+                        }
+                    }
+                    if (j + 1 < grid.cols){
+                        cv::Vec3f neighbor = grid(i, j + 1);
+                        if (neighbor != cv::Vec3f(-1, -1, -1)){
+                            x_num += neighbor[0]; y_num += neighbor[1]; z_num += neighbor[2];
+                            neighbors++;
+                        }
+                    }
+
+                    if (neighbors >= 2){ // neighbors acts as the denominator here
+                        next(i, j) = cv::Vec3f(x_num / neighbors, y_num / neighbors, z_num / neighbors);
+                        invalidCellCount--;
                     }
                 }
             }
-
-            if (count > 0)
-                out(y, x) = sum * (1.0f / count);
         }
+        grid = next;
     }
-    return out;
+
+    // Fill rest of invalid cells with line of best fit
+
 }
