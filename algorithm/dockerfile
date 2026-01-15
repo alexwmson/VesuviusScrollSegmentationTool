@@ -1,0 +1,92 @@
+FROM ubuntu:noble
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt -y update
+RUN apt -y install software-properties-common
+RUN add-apt-repository -y universe
+RUN apt -y update
+RUN apt -y upgrade
+RUN apt -y full-upgrade
+
+ARG USE_AWS=0
+ENV USE_AWS=${USE_AWS}
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    ninja-build \
+    git \
+    wget \
+    pkg-config \
+    libopencv-dev \
+    libboost-program-options-dev \
+    libopenblas-dev \
+    libgomp1 \
+    libtiff-dev \
+    libxsimd-dev \
+    libblosc-dev \
+    libcurl4-openssl-dev \
+    nlohmann-json3-dev \
+    ca-certificates \
+&& rm -rf /var/lib/apt/lists/*
+
+# if using aws, then get the aws stuff
+RUN if [ "$USE_AWS" = "1" ]; then \
+      apt-get update && apt-get install -y libssl-dev uuid-dev && \
+      git clone --recurse-submodules https://github.com/aws/aws-sdk-cpp.git && \
+        cd aws-sdk-cpp && mkdir build && cd build && \
+        cmake .. -DBUILD_ONLY="s3" -DCMAKE_BUILD_TYPE=Release -DENABLE_TESTING=OFF && \
+        cmake --build . -j$(nproc) && \
+        cmake --install . ; \
+    fi
+
+# xtl
+RUN set -eux; \
+    cd /tmp; \
+    wget -q http://archive.ubuntu.com/ubuntu/pool/universe/x/xtl/xtl-dev_0.7.7-1_all.deb; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ./xtl-dev_0.7.7-1_all.deb; \
+    rm -f xtl-dev_0.7.7-1_all.deb
+
+# manually make xtensor because of compatibility issues with modern z5
+# released 2023-09-18 20:49:40 +0200
+ARG XTENSOR_VERSION=0.24.7
+WORKDIR /deps
+RUN set -eux; \
+ git clone https://github.com/xtensor-stack/xtensor.git \
+ && cd xtensor \
+ && git checkout ${XTENSOR_VERSION} \
+ && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+ && cmake --build build -j$(nproc) \
+ && cmake --install build
+
+# doing the same for z5
+# released 2023-10-31 16:25:01 +0100
+ARG Z5_VERSION=2.0.17
+WORKDIR /deps
+RUN set -eux; \
+    git clone https://github.com/constantinpape/z5.git \
+    && cd z5 \
+    && git checkout ${Z5_VERSION} \
+    && if [ "$USE_AWS" = "1" ]; then \
+        cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_Z5PY=OFF -DWITH_BLOSC=ON -DWITH_S3=ON ; \
+    else \
+        cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_Z5PY=OFF -DWITH_BLOSC=ON -DWITH_S3=OFF ; \
+    fi \
+    && cmake --build build -j$(nproc) \
+    && cmake --install build
+
+WORKDIR /app
+COPY . .
+
+RUN cmake -S . -B build -GNinja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DENABLE_S3=$USE_AWS \
+    && cmake --build build -j$(nproc)
+
+RUN cp build/aw_segmentation_algorithm /usr/local/bin/ && \
+    cp build/vc_render_tifxyz /usr/local/bin/ && \
+    chmod +x /usr/local/bin/aw_segmentation_algorithm /usr/local/bin/vc_render_tifxyz
+
+ENV PATH="/usr/local/bin:${PATH}"
+
+CMD ["/bin/bash"]

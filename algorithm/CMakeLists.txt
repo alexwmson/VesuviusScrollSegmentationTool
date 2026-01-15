@@ -12,6 +12,19 @@ find_package(TIFF REQUIRED)
 find_package(Boost REQUIRED COMPONENTS program_options)
 find_package(nlohmann_json REQUIRED)
 find_package(z5 REQUIRED)
+find_package(xtensor REQUIRED)
+
+# for s3
+option(ENABLE_S3 "Enable AWS S3 support" OFF)
+
+if(ENABLE_S3)
+    find_package(AWSSDK REQUIRED COMPONENTS s3)
+    set(AWS_LIBS ${AWSSDK_LINK_LIBRARIES})
+    set(AWS_INCLUDES ${AWSSDK_INCLUDE_DIR})
+else()
+    set(AWS_LIBS "")
+    set(AWS_INCLUDES "")
+endif()
 
 add_library(vc_core
     src/vc/core/types/ChunkedTensor.cpp
@@ -43,6 +56,7 @@ target_link_libraries(vc_core
         opencv_calib3d
         opencv_video
         z5
+        xtensor
         tiff
 )
 
@@ -52,4 +66,16 @@ target_link_libraries(aw_segmentation_algorithm
         vc_core
         Boost::program_options
         z5
+        ${AWS_LIBS}
 )
+target_include_directories(aw_segmentation_algorithm PRIVATE ${AWS_INCLUDES})
+
+add_executable(vc_render_tifxyz apps/vc_render_tifxyz.cpp)
+target_link_libraries(vc_render_tifxyz
+    PRIVATE
+    vc_core
+    Boost::program_options
+    z5
+    ${AWS_LIBS}
+)
+target_include_directories(vc_render_tifxyz PRIVATE ${AWS_INCLUDES})

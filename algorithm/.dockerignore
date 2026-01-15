@@ -1,0 +1,23 @@
+# CMake / build artifacts
+build/
+CMakeCache.txt
+CMakeFiles/
+cmake-build-*/
+
+# Whatever outputs gets mixed in
+results/
+output/
+*.png
+*.tif
+*.tiff
+
+# Dont include the git stuff either
+.git/
+.gitignore
+.github/
+.gitlab-ci.yml
+
+# Neither should weird leftovers from vscode
+.vscode/
+
+.dockerignore
