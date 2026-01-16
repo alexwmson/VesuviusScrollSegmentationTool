@@ -4,9 +4,13 @@
 *.pyc
 *.tif
 node_modules/.yarn-integrity
+__pycache__
 
 # Just C++ stuff
 build/
 *.o
 *.a
 *.so
+
+# My outputs, dont include those
+output

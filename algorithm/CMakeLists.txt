@@ -73,9 +73,17 @@ target_include_directories(aw_segmentation_algorithm PRIVATE ${AWS_INCLUDES})
 add_executable(vc_render_tifxyz apps/vc_render_tifxyz.cpp)
 target_link_libraries(vc_render_tifxyz
     PRIVATE
-    vc_core
-    Boost::program_options
-    z5
-    ${AWS_LIBS}
+        vc_core
+        Boost::program_options
+        z5
+        ${AWS_LIBS}
 )
 target_include_directories(vc_render_tifxyz PRIVATE ${AWS_INCLUDES})
+
+add_executable(generate_png_renders apps/generate_png_renders.cpp)
+target_link_libraries(generate_png_renders 
+    PRIVATE
+        opencv_core
+        opencv_imgproc
+        opencv_imgcodecs
+)

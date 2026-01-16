@@ -85,7 +85,8 @@ RUN cmake -S . -B build -GNinja \
 
 RUN cp build/aw_segmentation_algorithm /usr/local/bin/ && \
     cp build/vc_render_tifxyz /usr/local/bin/ && \
-    chmod +x /usr/local/bin/aw_segmentation_algorithm /usr/local/bin/vc_render_tifxyz
+    cp build/generate_png_renders /usr/local/bin/ && \
+    chmod +x /usr/local/bin/aw_segmentation_algorithm /usr/local/bin/vc_render_tifxyz /usr/local/bin/generate_png_renders
 
 ENV PATH="/usr/local/bin:${PATH}"
 
