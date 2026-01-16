@@ -71,7 +71,7 @@ cropped_meta = {
     "format": meta.get("format", "zarr")
 }
 
-# Write it to the root of the new Zarr
+# write the new json
 meta_out_path = os.path.join(store.path, "meta.json")
 with open(meta_out_path, "w") as f:
     json.dump(cropped_meta, f, indent=4)
