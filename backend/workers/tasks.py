@@ -10,10 +10,10 @@ client = docker.from_env()
 
 @celery_app.task(bind=True)
 def run_segmentation(self, volume_key: str, params: dict, seed: Optional[Sequence[int]] = None):
+    job_uuid = str(uuid.uuid4())
+    
     if volume_key not in VOLUME_MAP:
         raise ValueError(f"Unknown volume '{volume_key}'")
-
-    job_uuid = str(uuid.uuid4())
 
     print("OUTPUT_ROOT type:", type(OUTPUT_ROOT))
     print("job_uuid type:", type(job_uuid))
@@ -30,8 +30,7 @@ def run_segmentation(self, volume_key: str, params: dict, seed: Optional[Sequenc
     volume, scale = VOLUME_MAP[volume_key]
     volume_path = Path(volume)
     try:
-        self.update_state(state="STARTED", meta={"uuid": job_uuid})
-
+        self.update_state(state="PROGRESS", meta={"stage": "segmenting", "uuid": job_uuid})
         # AW segmentation command
         aw_command = [
             AW_BIN,
@@ -54,6 +53,7 @@ def run_segmentation(self, volume_key: str, params: dict, seed: Optional[Sequenc
             remove=True
         )
 
+        self.update_state(state="PROGRESS", meta={"stage": "rendering", "uuid": job_uuid})
         # VC render command
         vc_command = [
             VC_BIN,
@@ -74,6 +74,7 @@ def run_segmentation(self, volume_key: str, params: dict, seed: Optional[Sequenc
             remove=True
         )
 
+        self.update_state(state="PROGRESS", meta={"stage": "tiftopng", "uuid": job_uuid})
         # PNG render command
         png_command = [
             PNG_BIN,
@@ -95,5 +96,4 @@ def run_segmentation(self, volume_key: str, params: dict, seed: Optional[Sequenc
         }
 
     finally:
-        # Optional cleanup
         params_path.unlink(missing_ok=True)

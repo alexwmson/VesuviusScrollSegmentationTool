@@ -3,6 +3,8 @@ from pathlib import Path
 from workers.tasks import run_segmentation
 from config import VOLUME_MAP, OUTPUT_ROOT
 from functions.send_png import send_png
+from celery.result import AsyncResult
+from celery_app import celery_app
 
 app = Flask(__name__)
 
@@ -24,6 +26,25 @@ def generate_segment():
     return jsonify({
         "task_id": task.id
     }), 202
+
+@app.route("/jobs/<uuid>")
+def job_status(uuid):
+    result = AsyncResult(uuid, app=celery_app)
+
+    response = {
+        "state": result.state,
+    }
+
+    if result.state == "PROGRESS":
+        response.update(result.info)
+
+    if result.state == "SUCCESS":
+        response["result"] = result.result
+
+    if result.state == "FAILURE":
+        response["error"] = str(result.info)
+
+    return jsonify(response)
 
 #grayscale stuff
 @app.route("/jobs/<uuid>/grayscale", methods=["GET"])
