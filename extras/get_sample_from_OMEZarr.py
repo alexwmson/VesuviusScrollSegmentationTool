@@ -5,10 +5,9 @@ import json
 import os
 
 src = zarr.open("/home/alexr/Vesuvius/Data/scroll1.volpkg/volumes/54keV_7.91um_Scroll1A.zarr", mode="r")
-store = zarr.NestedDirectoryStore("/home/alexr/Vesuvius/Data/MiniVolumes/scroll1/center_54keV_7.91um_Scroll1A.zarr")
+store = zarr.NestedDirectoryStore("/home/alexr/Vesuvius/Data/MiniVolumes/scroll1/leftedge_54keV_7.91um_Scroll1A.zarr")
 dst = zarr.group(store=store, overwrite=True)
-#center z, center y, center x
-CZ, CY, CX = 7000, 4000, 4000
+CZ, CY, CX = 7086, 3134, 1522
 HALF = 1024 // 2
 z0, z1 = CZ - HALF, CZ + HALF
 y0, y1 = CY - HALF, CY + HALF

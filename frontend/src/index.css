@@ -1,0 +1,16 @@
+body {
+  margin: 0;
+}
+
+header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 108px;
+  background-color: #EDE8D0;
+  padding:0 16px;
+}
+
+header > div{
+  
+}

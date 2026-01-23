@@ -98,7 +98,7 @@ def get_volume_slice(volume_key, axis, index):
     if axis not in {"x", "y", "z"} or not axis_dir.exists():
         return {"error": "not found"}, 404
 
-    path = axis_dir / f"{index:02d}.png"
+    path = axis_dir / f"{index:04d}.png"
     if not path.exists():
         return {"error": "slice not found"}, 404
     return send_png(path)
