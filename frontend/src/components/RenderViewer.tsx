@@ -102,7 +102,7 @@ export default function RenderViewer({jobId, state, onIndexChange}: RenderViewer
                     draggable={false}
                     style={{
                         position: "absolute",
-                        transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
+                        transform: `scale(${scale}) translate(${offset.x}px, ${offset.y}px)`,
                         transformOrigin: "top left",
                         userSelect: "none",
                         cursor: dragging ? "grabbing" : "grab"
