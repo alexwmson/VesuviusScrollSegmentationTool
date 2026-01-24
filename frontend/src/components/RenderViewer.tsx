@@ -71,13 +71,23 @@ export default function RenderViewer({jobId, state, onIndexChange}: RenderViewer
         let x = e.clientX - startDrag.x;
         let y = e.clientY - startDrag.y;
 
-        const minX = Math.min(0, viewWidth - imgWidth);
-        const maxX = 0;
-        x = Math.max(minX, Math.min(maxX, x));
+        // X axis
+        if (imgWidth <= viewWidth) {
+            x = (viewWidth - imgWidth) / 2;
+        } else {
+            const minX = viewWidth - imgWidth;
+            const maxX = 0;
+            x = Math.max(minX, Math.min(maxX, x));
+        }
 
-        const minY = Math.min(0, viewHeight - imgHeight);
-        const maxY = 0;
-        y = Math.max(minY, Math.min(maxY, y));
+        // Y axis
+        if (imgHeight <= viewHeight) {
+            y = (viewHeight - imgHeight) / 2;
+        } else {
+            const minY = viewHeight - imgHeight;
+            const maxY = 0;
+            y = Math.max(minY, Math.min(maxY, y));
+        }
 
         setOffset({ x, y });
     };
