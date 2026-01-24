@@ -61,31 +61,26 @@ export default function RenderViewer({jobId, state, onIndexChange}: RenderViewer
         if (!container || !img) return;
 
         const containerRect = container.getBoundingClientRect();
-
-        const imgWidth = img.naturalWidth * scale;
-        const imgHeight = img.naturalHeight * scale;
-
-        const viewWidth = containerRect.width;
-        const viewHeight = containerRect.height;
+        const imgRect = img.getBoundingClientRect();
 
         let x = e.clientX - startDrag.x;
         let y = e.clientY - startDrag.y;
 
-        // X axis
-        if (imgWidth <= viewWidth) {
-            x = (viewWidth - imgWidth) / 2;
+        const minX = containerRect.width - imgRect.width;
+        const maxX = 0;
+
+        const minY = containerRect.height - imgRect.height;
+        const maxY = 0;
+
+        if (imgRect.width <= containerRect.width) {
+            x = (containerRect.width - imgRect.width) / 2;
         } else {
-            const minX = viewWidth - imgWidth;
-            const maxX = 0;
             x = Math.max(minX, Math.min(maxX, x));
         }
 
-        // Y axis
-        if (imgHeight <= viewHeight) {
-            y = (viewHeight - imgHeight) / 2;
+        if (imgRect.height <= containerRect.height) {
+            y = (containerRect.height - imgRect.height) / 2;
         } else {
-            const minY = viewHeight - imgHeight;
-            const maxY = 0;
             y = Math.max(minY, Math.min(maxY, y));
         }
 
