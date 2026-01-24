@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Header from "./components/Header.tsx";
+import ImageViewer from './components/ImageViewer.tsx';
 
 function App() {
   const [curVolume, setVolume] = useState("center_scroll1");
@@ -10,6 +11,7 @@ function App() {
   return (
     <>
       <Header></Header>
+      <ImageViewer volumeKey={curVolume} jobId=""></ImageViewer>
     </>
   );
 }
