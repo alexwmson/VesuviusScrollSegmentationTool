@@ -220,10 +220,10 @@ int main(int argc, char *argv[]){
     // Params stuff
     GlobalThreshold = params.value("global_threshold", 40);  //Threshold used to determine if voxel is scroll or air
     allowedDifference = params.value("allowed_difference", 0); // 0 -> 90 degrees, uses cross product
-    uint8_t patienceMax = params.value("max_patience", 5); // The max the patience counter can reach. I.e the most comfortable the bfs can be
-    int maxLayers = params.value("max_layers", 200); // Maximum number of bfs loops. If the code produced a perfect sphere, maxLayers is the radius
-    uint64_t maxSize = params.value("max_size", (uint64_t)1000000000); // Maximum points allowed, defaults to 1 billion
-    int minSize = params.value("min_size", 100); // Only used during random seed, used to determine min island size
+    uint8_t patienceMax = params.value("max_patience", 5); // The max the patience counter can reach. I.e the most comfortable the bfs can be, dont depend on this it will probably be removed / replaced by min/max size 
+    int maxLayers = params.value("max_layers", 2000); // Maximum number of bfs loops. If the code produced a perfect sphere, maxLayers is the radius
+    uint64_t maxSize = params.value("max_size", (uint64_t)250000); // Maximum points allowed, defaults to 250k
+    int minSize = params.value("min_size", 50000); // Only used during random seed, used to determine min island size
     float voxelSize = params.value("scale", 7.81); // The scrolls scale, defaults to 7.81 microns
     int stepSize = params.value("steps", 10); // Number of voxels to go over by
     std::string uuid = params.value("uuid", "segment_" + time_str()); // uuid for folder name
@@ -456,11 +456,26 @@ int main(int argc, char *argv[]){
     double area_cm2 = area_vx2 * voxelSize * voxelSize / 1e8;
     std::cout << "Area (cm^2): " << area_cm2 << std::endl;
 
+    // Print some statistics
+    int filledCells = 0;
+    for (int row = 0; row < height; row++) {
+        for (int col = 0; col < width; col++) {
+            if (grid(row, col) != cv::Vec3f(-1, -1, -1)) {
+                filledCells++;
+            }
+        }
+    }
+
+    std::cout << "Filled cells: " << filledCells << " / " << (width * height) << " (" << (100.0 * filledCells / (width * height)) << "%)" << std::endl;
+    std::cout << "Average overlap (I.e avg of x points being assigned to n cells in the grid): " << static_cast<float>(points.size()) / static_cast<float>(filledCells) << std::endl;
+
     nlohmann::json segment_meta;
     segment_meta["source"] = "aw_segmentation_algorithm";
     segment_meta["area_cm2"] = area_cm2;
     segment_meta["area_vx2"] = area_vx2;
     segment_meta["params_used"] = params;
+    segment_meta["volume"] = std::filesystem::path(vol_path).filename().string();
+    segment_meta["average_overlap"] = static_cast<float>(points.size()) / static_cast<float>(filledCells);
 
     surf.meta = std::make_unique<nlohmann::json>(std::move(segment_meta));
 
@@ -503,19 +518,7 @@ int main(int argc, char *argv[]){
         std::cout << "\n"; // new row
     }*/
 
-    // Print some statistics
-    int filledCells = 0;
-    for (int row = 0; row < height; row++) {
-        for (int col = 0; col < width; col++) {
-            if (grid(row, col) != cv::Vec3f(-1, -1, -1)) {
-                filledCells++;
-            }
-        }
-    }
-
-    std::cout << "Filled cells: " << filledCells << " / " << (width * height) << " (" << (100.0 * filledCells / (width * height)) << "%)" << std::endl;
-    std::cout << "Average overlap (I.e avg of x points being assigned to n cells in the grid): " << static_cast<float>(points.size()) / static_cast<float>(filledCells) << std::endl;
-
+    
     return EXIT_SUCCESS;
 }
 

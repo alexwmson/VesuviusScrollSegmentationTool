@@ -10,7 +10,7 @@ client = docker.from_env()
 
 @celery_app.task(bind=True)
 def run_segmentation(self, volume_key: str, params: dict, seed: Optional[Sequence[int]] = None):
-    job_uuid = str(uuid.uuid4())
+    job_uuid = self.request.id
     
     if volume_key not in VOLUME_MAP:
         raise ValueError(f"Unknown volume '{volume_key}'")
@@ -41,7 +41,7 @@ def run_segmentation(self, volume_key: str, params: dict, seed: Optional[Sequenc
         if seed:
             if len(seed) != 3:
                 raise ValueError("seed must contain exactly 3 numbers")
-            aw_command += ["-s", f"{seed[0]} {seed[1]} {seed[2]}"]
+            aw_command += ["-s", str(seed[0]), str(seed[1]), str(seed[2])]
 
         client.containers.run(
             ALGO_IMAGE,

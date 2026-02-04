@@ -1,12 +1,15 @@
 from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
 from pathlib import Path
 from workers.tasks import run_segmentation
 from config import VOLUME_MAP, OUTPUT_ROOT
 from functions.send_png import send_png
 from celery.result import AsyncResult
 from celery_app import celery_app
+from uuid import uuid4
 
 app = Flask(__name__)
+CORS(app, origins=["http://localhost:5173"])
 
 @app.route("/")
 def sanity_check():
@@ -16,15 +19,19 @@ def sanity_check():
 @app.route("/generate_segment", methods=["POST"])
 def generate_segment():
     payload = request.get_json(force=True)
+    job_uuid = str(uuid4())
 
-    task = run_segmentation.delay(
-        payload["volume"],
-        payload["params"],
-        payload["seed"]
+    task = run_segmentation.apply_async(
+        args=[
+            payload["volume"],
+            payload["params"],
+            payload["seed"]
+        ],
+        task_id=job_uuid
     )
 
     return jsonify({
-        "task_id": task.id
+        "uuid": job_uuid
     }), 202
 
 @app.route("/jobs/<uuid>")

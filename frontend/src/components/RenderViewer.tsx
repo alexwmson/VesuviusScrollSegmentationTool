@@ -66,12 +66,12 @@ export default function RenderViewer({jobId, state, onIndexChange}: RenderViewer
         let x = e.clientX - startDrag.x;
         let y = e.clientY - startDrag.y;
 
-        const minX = containerRect.width - imgRect.width;
+        const minX = containerRect.width - imgRect.width * scale;
         const maxX = 0;
 
-        const minY = containerRect.height - imgRect.height;
+        const minY = containerRect.height - imgRect.height * scale;
         const maxY = 0;
-
+        
         if (imgRect.width <= containerRect.width) {
             x = (containerRect.width - imgRect.width) / 2;
         } else {

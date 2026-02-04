@@ -10,6 +10,7 @@ header {
   height: 60px;
   background-color: #202020;
   padding:0 16px;
+  margin-bottom: 40px;
 
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
@@ -39,6 +40,7 @@ header > div > a {
   height: 150px;
   overflow: hidden;
   border: 1px solid whitesmoke;
+  background-color: black;
 }
 
 .image-container {
@@ -57,7 +59,8 @@ header > div > a {
 }
 
 main {
-  display:flex;
+  display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
 }
@@ -71,6 +74,111 @@ main {
 }
 
 #renderdiv {
-  display:flex;
+  display: flex;
   flex-direction: column;
+}
+
+.bodyDiv {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  gap: 3rem;
+}
+
+form {
+  background-color: #6f6f6f;
+  padding:2rem;
+  border-radius: 10px;
+}
+
+form > label > div {
+  display: flex;
+  flex-direction: row;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+form > label > div > label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+form > label > div > label > input {
+  width: 10ch; 
+  padding: 0.25rem;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+
+.directory {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  background-color: #6f6f6f;
+  padding: 1rem 0.5rem;
+  border-radius: 10px;
+}
+
+.directory ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+
+  width: 320px;
+
+  /* 10 rows × row height */
+  max-height: calc(10 * 2.2rem);
+  overflow-y: auto;
+
+  border-radius: 8px;
+  border: 1px solid #ccc;
+
+  background-color: #f5f5f5;
+}
+
+/* ROWS */
+.directory li {
+  height: 2.2rem;
+  display: flex;
+  align-items: center;
+
+  padding: 0 0.75rem;
+
+  font-family: monospace;
+  font-size: 0.9rem;
+
+  cursor: pointer;
+}
+
+/* ALTERNATING ROW COLORS */
+.directory li:nth-child(odd) {
+  background-color: #ffffff;
+}
+
+.directory li:nth-child(even) {
+  background-color: #e6e6e6;
+}
+
+/* ACTIVE (SELECTED) ROW */
+.directory li.active {
+  background-color: #5da9ff !important;
+  color: black;
+  font-weight: 600;
+}
+
+/* SCROLLBAR (optional polish) */
+.directory ul::-webkit-scrollbar {
+  width: 8px;
+}
+
+.directory ul::-webkit-scrollbar-thumb {
+  background-color: #aaa;
+  border-radius: 4px;
+}
+
+.directory ul::-webkit-scrollbar-track {
+  background-color: #eee;
 }
