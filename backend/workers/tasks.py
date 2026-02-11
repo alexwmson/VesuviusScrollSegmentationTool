@@ -1,15 +1,19 @@
 import json
 import uuid
 import docker
+import redis
+from celery import shared_task
 from celery_app import celery_app
 from config import VOLUME_MAP, OUTPUT_ROOT, AW_BIN, VC_BIN, PNG_BIN, ALGO_IMAGE, PNGRENDER_IMAGE
 from pathlib import Path
 from typing import Optional, Sequence
 
+red = redis.Redis(host = "vesuvius_redis", port = 6379, db = 1, decode_responses = True)
+
 client = docker.from_env()
 
 @celery_app.task(bind=True)
-def run_segmentation(self, volume_key: str, params: dict, seed: Optional[Sequence[int]] = None):
+def run_segmentation(self, volume_key: str, params: dict, seed: Optional[Sequence[int]] = None, ip: str = "0"):
     job_uuid = self.request.id
     
     if volume_key not in VOLUME_MAP:
@@ -97,3 +101,5 @@ def run_segmentation(self, volume_key: str, params: dict, seed: Optional[Sequenc
 
     finally:
         params_path.unlink(missing_ok=True)
+        red.decr(f"vesuvius:segmentation:in_progress:{ip}")
+        red.decr("vesuvius:segmentation:in_progress")

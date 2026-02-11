@@ -1,10 +1,7 @@
 import { useRef, useEffect, useState } from "react";
 import type { ScrollViewerProps } from "../interfaces/ScrollViewerProps";
 
-const STEP = 4;
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
-const MIN_ZOOM = 0.15;
-const MAX_ZOOM = 5;
 const ZOOM_STEP = 0.1;
 
 export default function ScrollViewer({ axis, state, onGlobalIndexDelta, volumeKey }: ScrollViewerProps) {
@@ -14,6 +11,8 @@ export default function ScrollViewer({ axis, state, onGlobalIndexDelta, volumeKe
   const imgRef = useRef<HTMLImageElement>(null);
   const [scale, setScale] = useState(0.2);
   const [offset, setOffset] = useState({ x: 0, y: 0});
+  const [minZoom, setMinZoom] = useState(0.1);
+  const maxZoom = 5;
 
   useEffect(() => {
     const el = containerRef.current;
@@ -32,7 +31,7 @@ export default function ScrollViewer({ axis, state, onGlobalIndexDelta, volumeKe
       const img = imgRef.current;
       const oldScale = scale;
       const zoomDelta = -Math.sign(e.deltaY) * ZOOM_STEP;
-      const newScale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, oldScale + zoomDelta));
+      const newScale = Math.min(maxZoom, Math.max(minZoom, oldScale + zoomDelta));
 
       const rect = container.getBoundingClientRect();
       const cursorX = e.clientX - rect.left;
@@ -133,11 +132,14 @@ export default function ScrollViewer({ axis, state, onGlobalIndexDelta, volumeKe
                 const img = imgRef.current;
                 const container = containerRef.current;
                 if (!img || !container) return;
-
-                const containerRect = container.getBoundingClientRect();
                 
-                const x = (containerRect.width - img.naturalWidth * scale) / 2;
-                const y = (containerRect.height - img.naturalHeight * scale) / 2;
+                const rect = container.getBoundingClientRect();
+                let zoom = Math.min(rect.width / img.naturalWidth, rect.height / img.naturalHeight);
+                setMinZoom(zoom);
+                setScale(zoom)
+
+                const x = (rect.width - img.naturalWidth * scale) / 2;
+                const y = (rect.height - img.naturalHeight * scale) / 2;
                 setOffset({ x, y });
             }}
             style={{

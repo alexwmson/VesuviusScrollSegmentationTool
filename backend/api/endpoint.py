@@ -9,11 +9,13 @@ from functions.send_png import send_png
 from celery.result import AsyncResult
 from celery_app import celery_app
 from uuid import uuid4
+import redis
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:5173"])
+CORS(app, origins = ["http://localhost:5173"])
 
-limiter = Limiter( get_remote_address, app=app, storage_uri="redis://vesuvius_redis:6379/1", default_limits=["200 per day", "50 per hour"])
+limiter = Limiter(get_remote_address, app = app, storage_uri = "redis://vesuvius_redis:6379/1", default_limits = ["200 per day", "50 per hour"])
+red = redis.Redis(host = "vesuvius_redis", port = 6379, db = 1, decode_responses=True)
 
 @app.route("/")
 def sanity_check():
@@ -21,8 +23,31 @@ def sanity_check():
 
 #generate segment stuff
 @app.route("/generate_segment", methods=["POST"])
-@limiter.limit("5 per minute")
 def generate_segment():
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+
+    cur = red.incr(f"vesuvius:segmentation:in_progress:{ip}")
+    glbl = red.incr("vesuvius:segmentation:in_progress")
+
+    red.expire(f"vesuvius:segmentation:in_progress:{ip}", 1800)
+    red.expire("vesuvius:segmentation:in_progress", 1800)
+
+    if cur > 5:
+        red.decr(f"vesuvius:segmentation:in_progress:{ip}")
+        red.decr("vesuvius:segmentation:in_progress")
+        return {
+            "error": "Too many segmentation jobs in progress for this ip",
+            "limit": 5,
+        }, 429
+
+    if glbl > 10:
+        red.decr(f"vesuvius:segmentation:in_progress:{ip}")
+        red.decr("vesuvius:segmentation:in_progress")
+        return {
+            "error": "Too many segmentation jobs in progress globally, please wait a bit",
+            "limit": 10,
+        }, 429
+
     payload = request.get_json(force=True)
     job_uuid = str(uuid4())
 
@@ -30,7 +55,8 @@ def generate_segment():
         args=[
             payload["volume"],
             payload["params"],
-            payload["seed"]
+            payload["seed"],
+            ip
         ],
         task_id=job_uuid
     )
