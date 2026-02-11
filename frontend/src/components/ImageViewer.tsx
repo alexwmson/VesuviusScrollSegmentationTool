@@ -7,6 +7,7 @@ import type { AxisState } from "../types/AxisState";
 import type { ImageViewerProps } from "../interfaces/ImageViewerProps";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const STEP = 4;
 export default function ImageViewer({volumeKey, jobId}: ImageViewerProps){
     const [renderState, setRenderState] = useState<AxisState>({
         index: 1,
@@ -21,15 +22,26 @@ export default function ImageViewer({volumeKey, jobId}: ImageViewerProps){
     });
     const [focusCoords, setFocusCoords] = useState(null);
 
-    const handleIndexChange = (axis: Axis, index: number) => {
-        setAxes(prev => ({
-            ...prev,
-            [axis]: {
-            ...prev[axis],
-            index
-            }
-        }));
-    };
+    const applyGlobalDelta = (direction: number) => {
+        if (axes.x.max === 1 || axes.y.max === 1 || axes.z.max === 1)
+            return;
+
+        setAxes(prev => {
+            const next = { ...prev };
+
+            (["x", "y", "z"] as Axis[]).forEach(axis => {
+            const a = prev[axis];
+            const nextIndex = a.index + direction * STEP;
+
+            next[axis] = {
+                ...a,
+                index: Math.min(a.max, Math.max(a.min, nextIndex))
+            };
+            });
+
+            return next;
+        });
+        };
 
     useEffect(() => {
         (["x", "y", "z"] as Axis[]).forEach(async axis => {
@@ -37,14 +49,14 @@ export default function ImageViewer({volumeKey, jobId}: ImageViewerProps){
             `${API_BASE}/volumes/${volumeKey}/${axis}`
             );
             const data = await res.json();
-
             setAxes(prev => ({
             ...prev,
             [axis]: {
                 index: data.min_index,
                 min: data.min_index,
-                max: data.max_index
+                max: 1 + STEP * (data.max_index - 1)
             }
+            
             }));
         });
     }, [volumeKey]);
@@ -69,21 +81,14 @@ export default function ImageViewer({volumeKey, jobId}: ImageViewerProps){
 
     return (
         <main>
-            { jobId.length > 0 &&
-                <div id="grayscalediv">
-                    <GrayscaleViewer jobId={jobId}/>
-                </div>
-            }
             <div id="renderdiv">
                 <div id="firstrow">
-                    { jobId.length > 0 &&
-                        <RenderViewer jobId={jobId} state={renderState} onIndexChange={(index) => setRenderState(prev => ({ ...prev, index }))}/>
-                    }
+                    <GrayscaleViewer jobId={jobId}/>
                     <ScrollViewer
                         axis="z"
                         volumeKey={volumeKey}
                         state={axes.z}
-                        onIndexChange={handleIndexChange}
+                        onGlobalIndexDelta={applyGlobalDelta}
                     />
                 </div>
                 <div id="secondrow">
@@ -91,13 +96,13 @@ export default function ImageViewer({volumeKey, jobId}: ImageViewerProps){
                         axis="x"
                         volumeKey={volumeKey}
                         state={axes.x}
-                        onIndexChange={handleIndexChange}
+                        onGlobalIndexDelta={applyGlobalDelta}
                     />
                     <ScrollViewer
                         axis="y"
                         volumeKey={volumeKey}
                         state={axes.y}
-                        onIndexChange={handleIndexChange}
+                        onGlobalIndexDelta={applyGlobalDelta}
                     />
                 </div>
             </div>

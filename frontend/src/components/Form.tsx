@@ -10,7 +10,7 @@ export default function Form({volume, setSegments} : FormProps){
     const [z, setZ] = useState<number | null>(null);
     const [params, setParams] = useState<ParamsProp>({
         globalThreshold: 40,
-        allowedDifference: 0,
+        allowedDifference: 0.95,
         patienceMax: 5,
         minSize: 50000,
         maxSize: 250000,
@@ -75,7 +75,7 @@ export default function Form({volume, setSegments} : FormProps){
             const data = await response.json();
             console.log("Segmentation task started:", data);
             
-            setSegments((prev: string[]) => [...prev, data.uuid]);
+            setSegments((prev: [string, number][]) => [...prev, [data.uuid, 0]]);
             pingJobStatus(data.uuid);
         }
         catch(error) {
@@ -94,18 +94,21 @@ export default function Form({volume, setSegments} : FormProps){
             console.log("Job status:", status);
 
             if (status.state === "SUCCESS") {
+                setSegments((prev: [string, number][]) => prev.map(([key, value]) => uuid === key ? [key, 1] : [key, value]));
                 clearInterval(interval);
                 console.log("Job finished:", status.result);
             }
 
             if (status.state === "FAILURE") {
+                setSegments((prev: [string, number][]) => prev.filter(([key]) => key !== uuid));
                 clearInterval(interval);
                 console.error("Job failed:", status.error);
             }
 
             } catch (err) {
-            clearInterval(interval);
-            console.error("Polling failed:", err);
+                setSegments((prev: [string, number][]) => prev.filter(([key]) => key !== uuid));
+                clearInterval(interval);
+                console.error("Polling failed:", err);
             }
         }, 2000);
     }

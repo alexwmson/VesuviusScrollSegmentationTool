@@ -1,5 +1,7 @@
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from pathlib import Path
 from workers.tasks import run_segmentation
 from config import VOLUME_MAP, OUTPUT_ROOT
@@ -11,12 +13,15 @@ from uuid import uuid4
 app = Flask(__name__)
 CORS(app, origins=["http://localhost:5173"])
 
+limiter = Limiter( get_remote_address, app=app, storage_uri="redis://vesuvius_redis:6379/1", default_limits=["200 per day", "50 per hour"])
+
 @app.route("/")
 def sanity_check():
     return jsonify({"status": "ok", "message": "Hello! This works"})
 
 #generate segment stuff
 @app.route("/generate_segment", methods=["POST"])
+@limiter.limit("5 per minute")
 def generate_segment():
     payload = request.get_json(force=True)
     job_uuid = str(uuid4())
@@ -35,6 +40,7 @@ def generate_segment():
     }), 202
 
 @app.route("/jobs/<uuid>")
+@limiter.limit("10 per second")
 def job_status(uuid):
     result = AsyncResult(uuid, app=celery_app)
 
@@ -76,6 +82,7 @@ def get_render_info(uuid):
     }
 
 @app.route("/jobs/<uuid>/pngrenders/<int:index>", methods=["GET"])
+@limiter.limit("120 per minute")
 def get_render_slice(uuid, index):
     path = Path(OUTPUT_ROOT) / uuid / "pngrenders" / f"{index:02d}.png"
     if not path.exists():

@@ -36,8 +36,8 @@ header > div > a {
 }
 
 .viewport {
-  width: 150px;
-  height: 150px;
+  width: 400px;
+  height: 400px;
   overflow: hidden;
   border: 1px solid whitesmoke;
   background-color: black;
@@ -129,7 +129,6 @@ form > label > div > label > input {
 
   width: 320px;
 
-  /* 10 rows × row height */
   max-height: calc(10 * 2.2rem);
   overflow-y: auto;
 
@@ -139,7 +138,6 @@ form > label > div > label > input {
   background-color: #f5f5f5;
 }
 
-/* ROWS */
 .directory li {
   height: 2.2rem;
   display: flex;
@@ -153,7 +151,6 @@ form > label > div > label > input {
   cursor: pointer;
 }
 
-/* ALTERNATING ROW COLORS */
 .directory li:nth-child(odd) {
   background-color: #ffffff;
 }
@@ -162,14 +159,12 @@ form > label > div > label > input {
   background-color: #e6e6e6;
 }
 
-/* ACTIVE (SELECTED) ROW */
 .directory li.active {
   background-color: #5da9ff !important;
   color: black;
   font-weight: 600;
 }
 
-/* SCROLLBAR (optional polish) */
 .directory ul::-webkit-scrollbar {
   width: 8px;
 }
@@ -181,4 +176,8 @@ form > label > div > label > input {
 
 .directory ul::-webkit-scrollbar-track {
   background-color: #eee;
+}
+
+.directory li.notdone {
+  background-color: greenyellow;
 }

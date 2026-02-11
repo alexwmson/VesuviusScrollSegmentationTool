@@ -7,7 +7,7 @@ import Directory from './components/Directory.tsx';
 function App() {
   const [curVolume, setCurVolume] = useState("center_scroll1");
   const [curSegment, setCurSegment] = useState("f7be45d4-b6f2-4a12-9921-7cc145407251");
-  const [segments, setSegments] = useState<string[]>([]);
+  const [segments, setSegments] = useState<[string, number][]>([]);
 
   return (
     <>

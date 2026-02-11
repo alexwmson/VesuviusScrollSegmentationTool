@@ -7,7 +7,7 @@ const MIN_ZOOM = 0.15;
 const MAX_ZOOM = 5;
 const ZOOM_STEP = 0.1;
 
-export default function ScrollViewer({ axis, state, onIndexChange, volumeKey }: ScrollViewerProps) {
+export default function ScrollViewer({ axis, state, onGlobalIndexDelta, volumeKey }: ScrollViewerProps) {
   const [dragging, setDragging] = useState(false);
   const [startDrag, setStartDrag] = useState({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
@@ -24,9 +24,7 @@ export default function ScrollViewer({ axis, state, onIndexChange, volumeKey }: 
       if (!containerRef.current || !imgRef.current) return;
 
       if (e.shiftKey) {
-        const delta = Math.sign(e.deltaY) * STEP;
-        const next = Math.min(state.max, Math.max(state.min, state.index + delta));
-        if (next !== state.index) onIndexChange(axis, next);
+        onGlobalIndexDelta(Math.sign(e.deltaY));
         return;
       }
 
@@ -58,7 +56,7 @@ export default function ScrollViewer({ axis, state, onIndexChange, volumeKey }: 
 
     el.addEventListener("wheel", handleWheel, { passive: false });
     return () => el.removeEventListener("wheel", handleWheel);
-  }, [scale, offset, state, onIndexChange, axis]);
+  }, [scale, offset, state, onGlobalIndexDelta, axis]);
 
   useEffect(() => {
     const img = imgRef.current;
