@@ -10,6 +10,9 @@ from celery.result import AsyncResult
 from celery_app import celery_app
 from uuid import uuid4
 import redis
+import zipfile
+import io
+import json
 
 app = Flask(__name__)
 CORS(app, origins = ["http://localhost:5173"])
@@ -114,6 +117,39 @@ def get_render_slice(uuid, index):
     if not path.exists():
         return {"error": "slice not found"}, 404
     return send_png(path)
+
+#meta / download stuff
+@app.route("/jobs/<uuid>/meta")
+def get_meta(uuid):
+    meta_path = Path(OUTPUT_ROOT) / uuid / "meta.json"
+    if not meta_path.exists():
+        return {"error": "meta.json not found"}, 404
+
+    with open(meta_path, 'r') as f:
+        meta_data = json.load(f)
+
+    return jsonify(meta_data)
+
+@app.route("/jobs/<uuid>/download", methods=["GET"])
+def download_segment(uuid):
+    segment_dir = Path(OUTPUT_ROOT) / uuid
+    if not segment_dir.exists():
+        return {"error": "segment not found"}, 404
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zipf:
+        for path in segment_dir.rglob("*"):
+            if path.is_file():
+                zipf.write(path, arcname = path.relative_to(segment_dir))
+    
+    zip_buffer.seek(0) # resets pointer to 0 so we don't return nothing
+    return send_file(
+        zip_buffer,
+        mimetype = "application/zip",
+        as_attachment = True,
+        download_name = f"segment_{uuid}.zip"
+    )
+
 
 #volume stuff
 @app.route("/volumes/<volume_key>/<axis>", methods=["GET"])
