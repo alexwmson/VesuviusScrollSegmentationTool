@@ -226,7 +226,8 @@ int main(int argc, char *argv[]){
     int minSize = params.value("min_size", 50000); // Only used during random seed, used to determine min island size
     float voxelSize = params.value("scale", 7.81); // The scrolls scale, defaults to 7.81 microns
     int stepSize = params.value("steps", 10); // Number of voxels to go over by
-    std::string uuid = params.value("uuid", "segment_" + time_str()); // uuid for folder name
+    std::string time = time_str();
+    std::string uuid = params.value("uuid", "segment_" + time); // uuid for folder name
     cv::Vec2f scale(voxelSize, voxelSize);
 
     std::cout << "GlobalThreshold: " << static_cast<int>(GlobalThreshold )<< std::endl;
@@ -476,6 +477,10 @@ int main(int argc, char *argv[]){
     segment_meta["params_used"] = params;
     segment_meta["volume"] = std::filesystem::path(vol_path).filename().string();
     segment_meta["average_overlap"] = static_cast<float>(points.size()) / static_cast<float>(filledCells);
+    segment_meta["starting_point"] = {startingPoint.x, startingPoint.y, startingPoint.z};
+    segment_meta["pixels_on_grayscale"] = filledCells;
+    segment_meta["voxels_explored"] = points.size();
+    segment_meta["created_on"] = time;
 
     surf.meta = std::make_unique<nlohmann::json>(std::move(segment_meta));
 
