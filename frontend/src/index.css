@@ -36,8 +36,8 @@ header > div > a {
 }
 
 .viewport {
-  width: 400px;
-  height: 400px;
+  width: 375px;
+  height: 375px;
   overflow: hidden;
   border: 1px solid whitesmoke;
   background-color: black;

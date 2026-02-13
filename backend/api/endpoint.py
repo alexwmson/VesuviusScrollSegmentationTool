@@ -14,7 +14,7 @@ import redis
 app = Flask(__name__)
 CORS(app, origins = ["http://localhost:5173"])
 
-limiter = Limiter(get_remote_address, app = app, storage_uri = "redis://vesuvius_redis:6379/1", default_limits = ["200 per day", "50 per hour"])
+limiter = Limiter(get_remote_address, app = app, storage_uri = "redis://vesuvius_redis:6379/1", default_limits = ["2000 per day", "500 per hour"])
 red = redis.Redis(host = "vesuvius_redis", port = 6379, db = 1, decode_responses=True)
 
 @app.route("/")

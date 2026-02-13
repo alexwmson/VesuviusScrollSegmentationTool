@@ -4,12 +4,10 @@ import type { FormStateProp } from "../interfaces/FormStateProp";
 import type { ParamsProp } from "../interfaces/FormStateProp";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL;
-export default function Form({volume, setSegments} : FormProps){
-    const [x, setX] = useState<number | null>(null);
-    const [y, setY] = useState<number | null>(null);
-    const [z, setZ] = useState<number | null>(null);
+export default function Form({volume, setSegments, seed, setSeed, isFocusPoint, setIsFocusPoint} : FormProps){
+    const { x, y, z } = seed;
     const [params, setParams] = useState<ParamsProp>({
-        globalThreshold: 40,
+        globalThreshold: 112,
         allowedDifference: 0.95,
         patienceMax: 5,
         minSize: 50000,
@@ -19,12 +17,9 @@ export default function Form({volume, setSegments} : FormProps){
 
     function coordChange(e: React.ChangeEvent<HTMLInputElement>){
         let value  = e.currentTarget.value.trim() === "" ? null : +e.currentTarget.value;
-        if (e.currentTarget.name === "x")
-            setX(value);
-        else if (e.currentTarget.name === "y")
-            setY(value);
-        else
-            setZ(value);
+        const name = e.target.name as "x" | "y" | "z";
+
+        setSeed((prev: { x: number | null; y: number | null; z: number | null }) => ({ ...prev, [name]: value }));
     }
 
     function paramsChange(e: React.ChangeEvent<HTMLInputElement>){
@@ -130,6 +125,10 @@ export default function Form({volume, setSegments} : FormProps){
                         z: 
                         <input name="z" type="number" onChange={coordChange} value={z !== null ? z : ""}/>
                     </label>
+                    <button type="button" onClick={() => {
+                        setIsFocusPoint(false);
+                        setSeed({x: null, y: null, z: null});
+                        }}>Reset focus point</button>
                 </div>
             </label>
             <label>
