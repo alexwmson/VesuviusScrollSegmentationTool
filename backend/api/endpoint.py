@@ -27,6 +27,16 @@ def sanity_check():
 #generate segment stuff
 @app.route("/generate_segment", methods=["POST"])
 def generate_segment():
+    payload = request.get_json(force=True)
+    params = payload.get("params", {})
+
+    errors = validate_params(params)
+    if errors:
+        return {
+            "error": "Invalid parameters",
+            "details": errors
+        }, 400
+    
     ip = request.headers.get("X-Forwarded-For", request.remote_addr)
 
     cur = red.incr(f"vesuvius:segmentation:in_progress:{ip}")
@@ -51,7 +61,6 @@ def generate_segment():
             "limit": 10,
         }, 429
 
-    payload = request.get_json(force=True)
     job_uuid = str(uuid4())
 
     task = run_segmentation.apply_async(
@@ -178,3 +187,71 @@ def get_volume_slice(volume_key, axis, index):
     if not path.exists():
         return {"error": "slice not found"}, 404
     return send_png(path)
+
+
+#other functions/variables
+
+RULES = {
+        "min_size": {
+            "type": int,
+            "min": 1,
+            "max": 1_000_000,
+        },
+        "max_size": {
+            "type": int,
+            "min": 1,
+            "max": 1_000_000,
+        },
+        "steps": {
+            "type": int,
+            "min": 1,
+            "max": 40,
+        },
+        "global_threshold": {
+            "type": int,
+            "min": 0,
+            "max": 255,
+        },
+        "allowed_difference": {
+            "type": (int, float),
+            "min": -1.0,
+            "max": 1.0,
+        },
+        "max_patience": {
+            "type": int,
+            "min": 1,
+            "max": 50,
+        },
+    }
+
+def validate_params(params: dict):
+    errors = []
+
+    for name, rules in RULES.items():
+        if name not in params:
+            continue
+
+        value = params[name]
+
+        if not isinstance(value, rules["type"]):
+            errors.append(f"{name} must be {rules['type']}")
+            continue
+
+        if "min" in rules and value < rules["min"]:
+            errors.append(f"{name} must be >= {rules['min']}")
+
+        if "max" in rules and value > rules["max"]:
+            errors.append(f"{name} must be <= {rules['max']}")
+
+    #make sure min size is less or equal to max size
+    if "min_size" in params and "max_size" in params:
+        if params["min_size"] >= params["max_size"]:
+            errors.append("max_size must be greater than min_size")
+    if "min_size" in params and not "max_size" in params:
+        if params["min_size"] > 250000:
+            errors.append("min_size must be <= default max_size: 250000")
+    if not "min_size" in params and "max_size" in params:
+        if params["max_size"] < 50000:
+            errors.append("max_size must be >= default min_size: 50000")
+
+    return errors

@@ -7,12 +7,12 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL;
 export default function Form({volume, setSegments, seed, setSeed, isFocusPoint, setIsFocusPoint} : FormProps){
     const { x, y, z } = seed;
     const [params, setParams] = useState<ParamsProp>({
-        globalThreshold: 112,
-        allowedDifference: 0.95,
-        patienceMax: 5,
-        minSize: 50000,
-        maxSize: 250000,
-        stepSize: 10
+        global_threshold: 112,
+        allowed_difference: 0.95,
+        max_patience: 5,
+        min_size: 50000,
+        max_size: 250000,
+        steps: 10
     });
 
     function coordChange(e: React.ChangeEvent<HTMLInputElement>){
@@ -53,6 +53,8 @@ export default function Form({volume, setSegments, seed, setSeed, isFocusPoint, 
             seed: seed,
             params: finalParams
         }
+
+        console.log("Sending params:", completeJson);
 
         try {
             const response = await fetch(`${API_BASE}/generate_segment`, {
@@ -136,29 +138,29 @@ export default function Form({volume, setSegments, seed, setSeed, isFocusPoint, 
                 <div>
                     <label>
                         Min Size: 
-                        <input name="minSize" type="number" onChange={paramsChange} value={params.minSize !== null ? params.minSize : ""}/>
+                        <input name="min_size" type="number" min={1} max={1_000_000} onChange={paramsChange} value={params.min_size !== null ? params.min_size : ""}/>
                     </label>
                     <label>
                         Max Size: 
-                        <input name="maxSize" type="number" onChange={paramsChange} value={params.maxSize !== null ? params.maxSize : ""}/>
+                        <input name="max_size" type="number" min={1} max={1_000_000} onChange={paramsChange} value={params.max_size !== null ? params.max_size : ""}/>
                     </label>
                     <label>
                         Step Size: 
-                        <input name="stepSize" type="number" onChange={paramsChange} value={params.stepSize !== null ? params.stepSize : ""}/>
+                        <input name="steps" type="number" min={1} max={40} onChange={paramsChange} value={params.steps !== null ? params.steps : ""}/>
                     </label>
                 </div>
                 <div>
                     <label>
                         Global Threshold:
-                        <input name="globalThreshold" type="number" onChange={paramsChange} value={params.globalThreshold !== null ? params.globalThreshold : ""} />
+                        <input name="global_threshold" type="number" min={0} max={255} onChange={paramsChange} value={params.global_threshold !== null ? params.global_threshold : ""} />
                     </label>
                     <label>
                         Allowed Difference:
-                        <input name="allowedDifference" type="number" onChange={paramsChange} value={params.allowedDifference !== null ? params.allowedDifference : ""} />
+                        <input name="allowed_difference" type="number" min={-1} max={1} step={0.01} onChange={paramsChange} value={params.allowed_difference !== null ? params.allowed_difference : ""} />
                     </label>
                     <label>
                         Patience Max:
-                        <input name="patienceMax" type="number" onChange={paramsChange} value={params.patienceMax !== null ? params.patienceMax : ""} />
+                        <input name="max_patience" type="number" min={1} max={50} onChange={paramsChange} value={params.max_patience !== null ? params.max_patience : ""} />
                     </label>
                 </div>
             </label>

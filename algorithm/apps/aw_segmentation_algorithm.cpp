@@ -422,7 +422,11 @@ int main(int argc, char *argv[]){
     }
 
     // Save as tifxyz
-    auto downsampled = downsampleGrid(grid, stepSize);
+    int effectiveStepSize = stepSize;
+    if (grid.rows < stepSize || grid.cols < stepSize)
+        effectiveStepSize = 1;
+
+    auto downsampled = downsampleGrid(grid, effectiveStepSize);
 
     int valid = 0;
     for (int r = 0; r < downsampled.rows; ++r) {
@@ -545,7 +549,7 @@ point findStart(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp
         return point{};
 
     std::queue<point> q;
-    bool seen[100][100][100] = {false};
+    bool (*seen)[100][100] = new bool[100][100][100]();
     uint16_t newX, newY, newZ;
     int indexX, indexY, indexZ;
     int offsetX = startX > 50 ? startX - 50 : 0, offsetY = startY > 50 ? startY - 50 : 0, offsetZ = startZ > 50 ? startZ - 50 : 0;
@@ -558,8 +562,10 @@ point findStart(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp
         q.pop();
 
         p.value = get_val(interp, p.x, p.y, p.z);
-        if (p.isSurface(interp))
+        if (p.isSurface(interp)){
+            delete[] seen;
             return p;
+        }
 
         for (const auto &neighbor : directions26){
             if (!safeAdd(p.x, neighbor[0], newX)) continue;
@@ -573,6 +579,7 @@ point findStart(CachedChunked3dInterpolator<uint8_t, passTroughComputor> &interp
             }
         }
     }
+    delete[] seen;
     return point{};
 }
 
