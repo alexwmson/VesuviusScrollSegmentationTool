@@ -8,11 +8,16 @@ import Meta from './components/Meta.tsx';
 
 function App() {
   const [curVolume, setCurVolume] = useState("center_scroll1");
-  const [curSegment, setCurSegment] = useState("f7be45d4-b6f2-4a12-9921-7cc145407251");
-  const [segments, setSegments] = useState<[string, number][]>([]);
+  const [curSegment, setCurSegment] = useState("example1");
+  const [segments, setSegments] = useState<[string, number][]>([["example1", 1]]);
   const [seed, setSeed] = useState<{ x: number | null; y: number | null; z: number | null }>({x: null, y: null, z: null});
   const [isFocusPoint, setIsFocusPoint] = useState<boolean>(false);
-  const [meta, setMeta] = useState<SegmentMeta | null>(null);
+  const [meta, setMeta] = useState<SegmentMeta | null>({
+  "starting_points": [311, 87, 596],
+  "voxels_explored": 250000,
+  "pixels_on_grayscale": 106721,
+  "created_on": "20260217220033927"
+});
 
   return (
     <>
