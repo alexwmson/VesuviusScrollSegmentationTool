@@ -13,7 +13,7 @@ red = redis.Redis(host = "vesuvius_redis", port = 6379, db = 1, decode_responses
 client = docker.from_env()
 
 @celery_app.task(bind=True)
-def run_segmentation(self, volume_key: str, params: dict, seed: Optional[Sequence[int]] = None, ip: str = "0"):
+def run_segmentation(self, volume_key: str, params: dict, seed: Optional[Sequence[int]] = None, ip: str = "0", signature: str = ""):
     job_uuid = self.request.id
     
     if volume_key not in VOLUME_MAP:
@@ -98,7 +98,10 @@ def run_segmentation(self, volume_key: str, params: dict, seed: Optional[Sequenc
             "uuid": job_uuid,
             "output_dir": str(job_dir)
         }
-
+    except Exception:
+        if signature:
+            red.delete(f"vesuvius:dedupe:{signature}")
+        raise
     finally:
         params_path.unlink(missing_ok=True)
         red.decr(f"vesuvius:segmentation:in_progress:{ip}")

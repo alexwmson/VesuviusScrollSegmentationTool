@@ -13,6 +13,7 @@ import redis
 import zipfile
 import io
 import json
+import hashlib
 
 app = Flask(__name__)
 CORS(app, origins = ["http://localhost:5173"])
@@ -37,6 +38,17 @@ def generate_segment():
             "details": errors
         }, 400
     
+    volume_key = payload["volume"]
+    seed = payload.get("seed", [])
+    signature = create_signature(volume_key, params, seed)
+
+    dedupe_key = f"vesuvius:dedupe:{signature}"
+    lock_key = f"vesuvius:dedupe_lock:{signature}"
+
+    existing_uuid = red.get(dedupe_key)
+    if existing_uuid:
+        return jsonify({"uuid": existing_uuid, "deduped": True}), 202
+
     ip = request.headers.get("X-Forwarded-For", request.remote_addr)
 
     cur = red.incr(f"vesuvius:segmentation:in_progress:{ip}")
@@ -63,15 +75,27 @@ def generate_segment():
 
     job_uuid = str(uuid4())
 
+    # lock to make sure we dont have the same job runnig twice
+    got_lock = red.set(lock_key, "1", nx = True, ex = 60)
+    if not got_lock:
+        existing_uuid = red.get(dedupe_key)
+        if existing_uuid:
+            return jsonify({"uuid": existing_uuid, "deduped": True}), 202
+        return jsonify({"error": "Job already being enqueued, try again"}), 409
+
     task = run_segmentation.apply_async(
         args=[
             payload["volume"],
             payload["params"],
             payload["seed"],
-            ip
+            ip,
+            signature
         ],
         task_id=job_uuid
     )
+
+    red.set(dedupe_key, job_uuid, ex = 86400) # a day
+    red.delete(lock_key)
 
     return jsonify({
         "uuid": job_uuid
@@ -255,3 +279,27 @@ def validate_params(params: dict):
             errors.append("max_size must be >= default min_size: 50000")
 
     return errors
+
+def normalize_payload(volume: str, params: dict, seed) -> dict:
+    if seed is None:
+        seed_norm = []
+    else:
+        seed_norm = list(seed)
+
+    params_norm = {}
+    for k in sorted(params.keys()):
+        v = params[k]
+        if v is None:
+            continue
+
+        if isinstance(v, float):
+            v = round(v, 6)
+
+        params_norm[k] = v
+
+    return {"volume": volume, "params": params_norm, "seed": seed_norm}
+
+def create_signature(volume: str, params: dict, seed) -> str:
+    canonical = normalize_payload(volume, params, seed)
+    payload_bytes = json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(payload_bytes).hexdigest()
