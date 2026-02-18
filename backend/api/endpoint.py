@@ -40,14 +40,17 @@ def generate_segment():
     
     volume_key = payload["volume"]
     seed = payload.get("seed", [])
-    signature = create_signature(volume_key, params, seed)
 
-    dedupe_key = f"vesuvius:dedupe:{signature}"
-    lock_key = f"vesuvius:dedupe_lock:{signature}"
+    random_seed = seed is None or seed == []
+    if not random_seed:
+        signature = create_signature(volume_key, params, seed)
 
-    existing_uuid = red.get(dedupe_key)
-    if existing_uuid:
-        return jsonify({"uuid": existing_uuid, "deduped": True}), 202
+        dedupe_key = f"vesuvius:dedupe:{signature}"
+        lock_key = f"vesuvius:dedupe_lock:{signature}"
+
+        existing_uuid = red.get(dedupe_key)
+        if existing_uuid:
+            return jsonify({"uuid": existing_uuid, "deduped": True}), 202
 
     ip = request.headers.get("X-Forwarded-For", request.remote_addr)
 
@@ -76,12 +79,13 @@ def generate_segment():
     job_uuid = str(uuid4())
 
     # lock to make sure we dont have the same job runnig twice
-    got_lock = red.set(lock_key, "1", nx = True, ex = 60)
-    if not got_lock:
-        existing_uuid = red.get(dedupe_key)
-        if existing_uuid:
-            return jsonify({"uuid": existing_uuid, "deduped": True}), 202
-        return jsonify({"error": "Job already being enqueued, try again"}), 409
+    if not random_seed:
+        got_lock = red.set(lock_key, "1", nx = True, ex = 60)
+        if not got_lock:
+            existing_uuid = red.get(dedupe_key)
+            if existing_uuid:
+                return jsonify({"uuid": existing_uuid, "deduped": True}), 202
+            return jsonify({"error": "Job already being enqueued, try again"}), 409
 
     task = run_segmentation.apply_async(
         args=[
@@ -89,13 +93,14 @@ def generate_segment():
             payload["params"],
             payload["seed"],
             ip,
-            signature
+            (signature if not random_seed else "")
         ],
         task_id=job_uuid
     )
 
-    red.set(dedupe_key, job_uuid, ex = 86400) # a day
-    red.delete(lock_key)
+    if not random_seed:
+        red.set(dedupe_key, job_uuid, ex = 86400) # a day
+        red.delete(lock_key)
 
     return jsonify({
         "uuid": job_uuid
