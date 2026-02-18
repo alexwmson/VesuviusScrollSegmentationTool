@@ -48,6 +48,6 @@ The backend/worker pattern mounts `/var/run/docker.sock` so it can launch algori
 
 ### Status
 
-This is a personal learning/research project and is still in early testing stages. It can visualize papyrus fibers well and can sometimes detect sheet splits, but the full “path labeling through intersections” goal is still in progress.
+This is a personal learning/research project and is still in early testing stages. It can visualize papyrus fibers well and can sometimes detect sheet switches, but the full “path labeling through intersections” goal is still in progress.
 
 For more detail on any part of the stack, see the per-directory READMEs.
